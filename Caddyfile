@@ -1,0 +1,23 @@
+n8n-s-app01.tmcast.net {
+
+    # Security headers for all responses
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    # Block unauthorized webhook requests
+    @unauthorized {
+        path /webhook/*
+        not header X-API-Key 841502453b8ac8bb9c691ff57e7d1ecf070c4c266eb63be554235a9be6659b37
+    }
+
+    respond @unauthorized 401 {
+        body "Unauthorized: Invalid or missing API key"
+    }
+
+    reverse_proxy n8n:5678
+}

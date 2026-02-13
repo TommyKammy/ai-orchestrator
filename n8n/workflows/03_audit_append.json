@@ -1,0 +1,128 @@
+{
+  "name": "03 Audit Append",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "audit/append",
+        "responseMode": "responseNode"
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "audit-append",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json.body;\n\n// Validate required fields\nif (!input.actor || !input.action || !input.target || !input.decision) {\n  return [{\n    json: {\n      error: 'Missing required fields: actor, action, target, decision'\n    }\n  }];\n}\n\n// Validate decision value\nconst validDecisions = ['allowed', 'denied', 'requires_approval'];\nif (!validDecisions.includes(input.decision)) {\n  return [{\n    json: {\n      error: 'Invalid decision. Must be: allowed, denied, or requires_approval'\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    actor: input.actor,\n    action: input.action,\n    target: input.target,\n    decision: input.decision,\n    payload: input.payload || {}\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "name": "Validate Input"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nif (data.error) {\n  return [{\n    json: {\n      status: 'error',\n      message: data.error\n    }\n  }];\n}\n\nreturn [{\n  json: data\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 200],
+      "name": "Check Validation"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "json": "={{ JSON.stringify({ status: \"error\", message: $input.first().json.message }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [850, 200],
+      "name": "Error Response"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_events (actor, action, target, decision, payload_jsonb, created_at)\nVALUES ('{{ $input.first().json.actor.replace(/'/g, \"''\") }}', '{{ $input.first().json.action.replace(/'/g, \"''\") }}', '{{ $input.first().json.target.replace(/'/g, \"''\") }}', '{{ $input.first().json.decision }}', '{{ JSON.stringify($input.first().json.payload).replace(/'/g, \"''\") }}'::jsonb, NOW());",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [850, 400],
+      "name": "Insert Audit",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "json": "={{ JSON.stringify({ status: \"success\", message: \"Audit event recorded\" }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1050, 400],
+      "name": "Success Response"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Check Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Validation": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Insert Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Audit": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}

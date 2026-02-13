@@ -1,0 +1,38 @@
+.env
+.env.*
+!.env.example
+
+# Runtime data directories
+postgres/
+redis/
+logs/
+backups/
+caddy_data/
+caddy_config/
+
+# Log files
+*.log
+WORKLOG-*
+
+# n8n runtime data
+n8n/config
+n8n/.n8n/
+n8n/*.log
+n8n/crash.journal
+n8n/n8nEventLog*
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

@@ -1,0 +1,86 @@
+version: "3.9"
+
+services:
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ai-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ai_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+      POSTGRES_DB: ai_memory
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai-redis
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - ./redis:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: ai-n8n
+    restart: always
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ai_memory
+      DB_POSTGRESDB_USER: ai_user
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-CHANGE_ME}
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: admin
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-CHANGE_ME}
+      N8N_WEBHOOK_API_KEY: ${N8N_WEBHOOK_API_KEY:-CHANGE_ME}
+
+      N8N_HOST: ${N8N_HOST:-n8n.example.com}
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${N8N_HOST:-n8n.example.com}/
+
+    volumes:
+      - ./n8n:/home/node/.n8n
+
+    depends_on:
+      - postgres
+      - redis
+
+  executor:
+    image: python:3.11-slim
+    container_name: ai-executor
+    restart: always
+    command: sleep infinity
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    network_mode: "none"
+    volumes:
+      - ./executor:/workspace:ro
+      - ./logs:/logs
+    working_dir: /workspace
+
+  caddy:
+    image: caddy:latest
+    container_name: ai-caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./caddy_data:/data
+      - ./caddy_config:/config
+    depends_on:
+      - n8n
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1

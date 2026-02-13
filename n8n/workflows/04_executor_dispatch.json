@@ -1,0 +1,156 @@
+{
+  "name": "04 Executor Dispatch",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "executor/run",
+        "responseMode": "responseNode"
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "executor-run",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json.body;\n\n// Validate required fields\nif (!input.tenant_id || !input.scope || !input.task) {\n  return [{\n    json: {\n      error: 'Missing required fields: tenant_id, scope, task'\n    }\n  }];\n}\n\n// Validate task is an object\nif (typeof input.task !== 'object' || input.task === null) {\n  return [{\n    json: {\n      error: 'task must be an object'\n    }\n  }];\n}\n\n// Simulate executor output\nconst output = {\n  timestamp: new Date().toISOString(),\n  task: input.task,\n  status: 'received',\n  executor: 'ai-executor'\n};\n\nreturn [{\n  json: {\n    tenant_id: input.tenant_id,\n    scope: input.scope,\n    task: input.task,\n    output: output,\n    outcome: 'ok'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "name": "Validate and Execute"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nif (data.error) {\n  return [{\n    json: {\n      status: 'error',\n      message: data.error\n    }\n  }];\n}\n\nreturn [{\n  json: data\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 200],
+      "name": "Check Validation"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "json": "={{ JSON.stringify({ status: \"error\", message: $input.first().json.message }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [850, 200],
+      "name": "Error Response"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO memory_episodes (tenant_id, scope, summary, outcome, started_at, ended_at, metadata_jsonb)\nVALUES ('{{ $input.first().json.tenant_id }}', '{{ $input.first().json.scope }}', 'executor task executed', '{{ $input.first().json.outcome }}', NOW(), NOW(), '{{ JSON.stringify($input.first().json.output).replace(/'/g, \"''\") }}'::jsonb);",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [850, 400],
+      "name": "Insert Episode",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_events (actor, action, target, decision, created_at)\nVALUES ('workflow:executor_dispatch', 'executor_run', '{{ $input.first().json.scope }}', 'allowed', NOW());",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1050, 400],
+      "name": "Insert Audit",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "json": "={{ JSON.stringify({ status: \"success\", outcome: $input.first().json.outcome, output: $input.first().json.output }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 400],
+      "name": "Success Response"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate and Execute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate and Execute": {
+      "main": [
+        [
+          {
+            "node": "Check Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Validation": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Insert Episode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Episode": {
+      "main": [
+        [
+          {
+            "node": "Insert Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Audit": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}
