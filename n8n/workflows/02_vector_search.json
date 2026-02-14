@@ -9,7 +9,10 @@
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [250, 300],
+      "position": [
+        250,
+        300
+      ],
       "webhookId": "memory-search",
       "name": "Webhook"
     },
@@ -19,7 +22,10 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
-      "position": [450, 300],
+      "position": [
+        450,
+        300
+      ],
       "name": "Validate Input"
     },
     {
@@ -28,7 +34,10 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
-      "position": [650, 200],
+      "position": [
+        650,
+        200
+      ],
       "name": "Check Validation"
     },
     {
@@ -38,7 +47,10 @@
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [850, 200],
+      "position": [
+        850,
+        200
+      ],
       "name": "Error Response"
     },
     {
@@ -65,16 +77,22 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [850, 400],
+      "position": [
+        850,
+        400
+      ],
       "name": "Generate Query Embedding"
     },
     {
       "parameters": {
-        "jsCode": "const response = $input.first().json;\nconst values = response?.embedding?.values;\n\nif (!Array.isArray(values) || values.length === 0) {\n  throw new Error('Invalid embedding response from Gemini');\n}\n\n// Reduce to 1536 dimensions for pgvector compatibility\nconst TARGET_DIM = 1536;\nconst reduced = values.slice(0, TARGET_DIM);\nconst original = $('Check Validation').first().json;\n\nreturn [{\n  json: {\n    ...original,\n    embedding: `[${reduced.join(',')}]`\n  }\n}];"
+        "jsCode": "const fs = require('fs');\n\n// Load PCA model\nconst pca = JSON.parse(fs.readFileSync('/workspace/pca_model.json', 'utf8'));\n\nconst response = $input.first().json;\nconst embedding = response?.embedding?.values;\n\nif (!Array.isArray(embedding) || embedding.length === 0) {\n  throw new Error('Invalid embedding response from Gemini');\n}\n\n// PCA transformation\nconst mean = pca.mean;\nconst components = pca.components;\n\n// Center the embedding\nconst centered = embedding.map((v, i) => v - mean[i]);\n\n// Project onto principal components\nconst reduced = components.map(component =>\n  component.reduce((sum, weight, i) => sum + weight * centered[i], 0)\n);\n\nconst original = $('Check Validation').first().json;\n\nreturn [{\n  json: {\n    ...original,\n    embedding: `[${reduced.join(',')}]`\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
-      "position": [1050, 400],
+      "position": [
+        1050,
+        400
+      ],
       "name": "Parse Embedding"
     },
     {
@@ -87,7 +105,10 @@
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [1250, 400],
+      "position": [
+        1250,
+        400
+      ],
       "name": "Search Vectors",
       "credentials": {
         "postgres": {
@@ -104,7 +125,10 @@
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [1450, 400],
+      "position": [
+        1450,
+        400
+      ],
       "name": "Insert Audit",
       "credentials": {
         "postgres": {
@@ -120,7 +144,10 @@
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1750, 400],
+      "position": [
+        1750,
+        400
+      ],
       "name": "Success Response"
     }
   ],
