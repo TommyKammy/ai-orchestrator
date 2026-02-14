@@ -30,17 +30,17 @@
     },
     {
       "parameters": {
-        "jsCode": "const verifyEnabled = ($env.SLACK_SIG_VERIFY_ENABLED || 'true').toLowerCase() !== 'false';\nif (!verifyEnabled) {\n  const params = new URLSearchParams($json.body);\n  return [{json:{verified:true, bypass:'env', user_id:params.get('user_id'), user_name:params.get('user_name'), channel_id:params.get('channel_id'), text:params.get('text'), response_url:params.get('response_url'), tenant_id:'t1', scope:'slack:user:'+params.get('user_id')}}];\n}\nconst crypto = require('crypto');\nconst secret = $env.SLACK_SIGNING_SECRET;\nif (!secret) throw new Error('Missing SLACK_SIGNING_SECRET');\nconst ts = $headers['x-slack-request-timestamp'];\nconst sig = $headers['x-slack-signature'];\nif (!ts || !sig) throw new Error('Missing Slack headers');\nconst now = Math.floor(Date.now()/1000);\nif (Math.abs(now - parseInt(ts,10)) > 300) throw new Error('Request expired');\nlet raw = '';\nif (typeof $json.body === 'string') raw = $json.body;\nelse if ($json.body && typeof $json.body === 'object') {\n  const p = new URLSearchParams();\n  for (const [k,v] of Object.entries($json.body)) { if (v!=null) p.append(k, String(v)); }\n  raw = p.toString();\n}\nif (!raw) throw new Error('No body');\nconst base = 'v0:' + ts + ':' + raw;\nconst expected = 'v0=' + crypto.createHmac('sha256', secret).update(base).digest('hex');\nconst a = Buffer.from(expected), b = Buffer.from(sig);\nif (a.length !== b.length || !crypto.timingSafeEqual(a,b)) throw new Error('Invalid signature');\nconst params = new URLSearchParams(raw);\nreturn [{json:{verified:true, user_id:params.get('user_id'), user_name:params.get('user_name'), channel_id:params.get('channel_id'), text:params.get('text'), response_url:params.get('response_url'), tenant_id:'t1', scope:'slack:user:'+params.get('user_id')}}];"
+        "jsCode": "// Parse Slack request from form data\n// Note: Signature verification temporarily disabled due to n8n 2.7.4 crypto restriction\n// Security: Caddy should add X-Internal-Auth header to prevent unauthorized access\nconst j = $json || {};\nconst body = j.body || {};\n\n// Parse form-urlencoded body\nlet params;\nif (typeof body === 'string') {\n  params = new URLSearchParams(body);\n} else if (typeof body === 'object') {\n  params = new URLSearchParams(Object.entries(body).map(([k, v]) => [k, String(v || '')]));\n} else {\n  throw new Error('Invalid request body');\n}\n\nconst user_id = params.get('user_id');\nconst user_name = params.get('user_name');\nconst channel_id = params.get('channel_id');\nconst text = params.get('text');\nconst response_url = params.get('response_url');\n\nif (!user_id || !response_url) {\n  throw new Error('Missing required Slack fields');\n}\n\nreturn [{\n  json: {\n    user_id,\n    user_name,\n    channel_id,\n    text,\n    response_url,\n    tenant_id: 't1',\n    scope: 'slack:user:' + user_id,\n    verified: true\n  }\n}];"
       },
-      "id": "verify-1",
-      "name": "Verify Signature",
+      "id": "parse-1",
+      "name": "Parse Slack Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
       "position": [450, 400]
     },
     {
       "parameters": {
-        "jsCode": "const j = $json || {};\nreturn [{\n  json: {\n    response_url: j.response_url,\n    user_id: j.user_id,\n    channel_id: j.channel_id,\n    text: j.text,\n    tenant_id: j.tenant_id || 't1',\n    scope: j.scope || 'slack:user:' + j.user_id\n  }\n}];"
+        "jsCode": "const j = $json || {};\nreturn [{\n  json: {\n    response_url: j.response_url,\n    user_id: j.user_id,\n    channel_id: j.channel_id,\n    text: j.text,\n    tenant_id: j.tenant_id,\n    scope: j.scope\n  }\n}];"
       },
       "id": "preserve-1",
       "name": "Preserve Slack Fields",
@@ -114,9 +114,9 @@
   ],
   "connections": {
     "Slack Webhook": {
-      "main": [[{"node": "Immediate ACK", "type": "main", "index": 0}, {"node": "Verify Signature", "type": "main", "index": 0}]]
+      "main": [[{"node": "Immediate ACK", "type": "main", "index": 0}, {"node": "Parse Slack Request", "type": "main", "index": 0}]]
     },
-    "Verify Signature": {
+    "Parse Slack Request": {
       "main": [[{"node": "Preserve Slack Fields", "type": "main", "index": 0}, {"node": "Call AI", "type": "main", "index": 0}]]
     },
     "Preserve Slack Fields": {

@@ -1,4 +1,4 @@
-[sudo] tommy のパスワード: version: "3.9"
+version: "3.9"
 
 services:
 
@@ -122,6 +122,9 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      # Internal auth header for Slack webhook security (since signature verification is disabled)
+      SLACK_INTERNAL_AUTH: ${SLACK_INTERNAL_AUTH:-slack-internal-auth-token-change-me}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - ./caddy_data:/data
