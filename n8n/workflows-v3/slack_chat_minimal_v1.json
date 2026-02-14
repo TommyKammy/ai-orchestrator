@@ -10,19 +10,19 @@
           "rawBody": true
         }
       },
-      "id": "webhook-node-1",
+      "id": "webhook-1",
       "name": "Slack Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [250, 300],
-      "webhookId": "slack-command-v3"
+      "webhookId": "slack-command"
     },
     {
       "parameters": {
         "respondWith": "json",
         "json": "{\n  \"response_type\": \"ephemeral\",\n  \"text\": \"Processing your request...\"\n}"
       },
-      "id": "ack-node-1",
+      "id": "ack-1",
       "name": "Immediate ACK",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
@@ -32,7 +32,7 @@
       "parameters": {
         "jsCode": "const crypto = require('crypto');\nconst secret = $env.SLACK_SIGNING_SECRET;\nif (!secret) throw new Error('Missing SLACK_SIGNING_SECRET');\nconst ts = $headers['x-slack-request-timestamp'];\nconst sig = $headers['x-slack-signature'];\nif (!ts || !sig) throw new Error('Missing Slack headers');\nconst now = Math.floor(Date.now()/1000);\nif (Math.abs(now - parseInt(ts,10)) > 300) throw new Error('Request expired');\nlet raw = '';\nif (typeof $json.body === 'string') raw = $json.body;\nelse if ($json.body && typeof $json.body === 'object') {\n  const p = new URLSearchParams();\n  for (const [k,v] of Object.entries($json.body)) { if (v!=null) p.append(k, String(v)); }\n  raw = p.toString();\n}\nif (!raw) throw new Error('No body');\nconst base = 'v0:' + ts + ':' + raw;\nconst expected = 'v0=' + crypto.createHmac('sha256', secret).update(base).digest('hex');\nconst a = Buffer.from(expected), b = Buffer.from(sig);\nif (a.length !== b.length || !crypto.timingSafeEqual(a,b)) throw new Error('Invalid signature');\nconst params = new URLSearchParams(raw);\nreturn [{json:{verified:true, user_id:params.get('user_id'), user_name:params.get('user_name'), channel_id:params.get('channel_id'), text:params.get('text'), response_url:params.get('response_url'), tenant_id:'t1', scope:'slack:user:'+params.get('user_id')}}];"
       },
-      "id": "verify-node-1",
+      "id": "verify-1",
       "name": "Verify Signature",
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
@@ -40,13 +40,13 @@
     },
     {
       "parameters": {
-        "jsCode": "return [{\n  json: {\n    ...$json,\n    slack_response_url: $json.response_url,\n    slack_user_id: $json.user_id,\n    slack_text: $json.text,\n    tenant_id: $json.tenant_id || 't1',\n    scope: $json.scope || 'slack:user:' + $json.user_id\n  }\n}];"
+        "jsCode": "const j = $json || {};\nreturn [{\n  json: {\n    response_url: j.response_url,\n    user_id: j.user_id,\n    channel_id: j.channel_id,\n    text: j.text,\n    tenant_id: j.tenant_id || 't1',\n    scope: j.scope || 'slack:user:' + j.user_id\n  }\n}];"
       },
-      "id": "preserve-node-1",
+      "id": "preserve-1",
       "name": "Preserve Slack Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
-      "position": [650, 400]
+      "position": [650, 350]
     },
     {
       "parameters": {
@@ -66,32 +66,32 @@
           "ignoreHttpStatusErrors": true
         }
       },
-      "id": "http-node-1",
+      "id": "call-ai-1",
       "name": "Call AI",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [850, 400],
+      "position": [650, 550],
       "continueOnFail": true
     },
     {
       "parameters": {
-        "jsCode": "const prior = $('Preserve Slack Fields').first().json || {};\nconst j = $json || {};\n\nconst responseUrl = prior.slack_response_url || prior.response_url || j.response_url;\n\nconst answer = j.answer || j.body?.answer || j.data?.answer || j.response?.answer;\n\nconst safeAnswer = answer && String(answer).trim().length\n  ? String(answer).trim()\n  : '⚠️ AI brain is not configured yet.\\n\\nPlease configure one of:\\n- KIMI_API_KEY\\n- OPENAI_API_KEY\\n\\n(Infra is working; only the LLM provider is missing.)';\n\nconsole.log('DIAGNOSTIC: responseUrl =', responseUrl);\nconsole.log('DIAGNOSTIC: answer =', safeAnswer.substring(0, 100));\nconsole.log('DIAGNOSTIC: router status =', j.status);\n\nreturn [{\n  json: {\n    ...prior,\n    ...j,\n    response_url: responseUrl,\n    answer: safeAnswer\n  }\n}];"
+        "mode": "combine"
       },
-      "id": "normalize-node-1",
-      "name": "Normalize Answer",
-      "type": "n8n-nodes-base.code",
+      "id": "merge-1",
+      "name": "Merge Slack + Router",
+      "type": "n8n-nodes-base.merge",
       "typeVersion": 1,
-      "position": [1050, 400]
+      "position": [850, 450]
     },
     {
       "parameters": {
-        "jsCode": "console.log('DIAGNOSTIC: Before Assert - response_url:', $json.response_url);\nif (!$json.response_url || String($json.response_url).trim().length < 10) {\n  console.error('DIAGNOSTIC: Missing response_url! Available fields:', Object.keys($json || {}).join(', '));\n  throw new Error('DIAGNOSTIC: Missing response_url before Respond to Slack');\n}\nconsole.log('DIAGNOSTIC: Assert passed - response_url is valid');\nreturn $input.all();"
+        "jsCode": "const j = $json || {};\n\nconst answer = j.answer ?? j.body?.answer ?? j.data?.answer ?? j.response?.answer ?? null;\n\nconst safeAnswer = answer && String(answer).trim().length\n  ? String(answer).trim()\n  : '⚠️ AI brain is not configured yet.\\n\\nPlease configure KIMI_API_KEY or OPENAI_API_KEY.\\n\\n(Infra working; LLM provider missing.)';\n\nif (!j.response_url || String(j.response_url).trim().length < 10) {\n  throw new Error('Missing response_url after Merge (should never happen)');\n}\n\nreturn [{\n  json: {\n    response_url: j.response_url,\n    answer: safeAnswer\n  }\n}];"
       },
-      "id": "assert-node-1",
-      "name": "Assert response_url",
+      "id": "normalize-1",
+      "name": "Normalize Answer",
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
-      "position": [1150, 400]
+      "position": [1050, 450]
     },
     {
       "parameters": {
@@ -103,27 +103,13 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{JSON.stringify({response_type:'ephemeral', text:$json.answer || 'No response from AI'})}}",
-        "options": {
-          "ignoreHttpStatusErrors": true
-        }
+        "jsonBody": "={{JSON.stringify({response_type:'ephemeral', text:$json.answer})}}"
       },
-      "id": "respond-node-1",
+      "id": "respond-1",
       "name": "Respond to Slack",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [1250, 400],
-      "continueOnFail": true
-    },
-    {
-      "parameters": {
-        "jsCode": "const resp = $json;\nconsole.log('DIAGNOSTIC: Respond to Slack completed. Response:', JSON.stringify(resp).substring(0, 500));\nreturn $input.all();"
-      },
-      "id": "log-node-1",
-      "name": "Log Response",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 1,
-      "position": [1400, 400]
+      "position": [1250, 450]
     }
   ],
   "connections": {
@@ -131,22 +117,19 @@
       "main": [[{"node": "Immediate ACK", "type": "main", "index": 0}, {"node": "Verify Signature", "type": "main", "index": 0}]]
     },
     "Verify Signature": {
-      "main": [[{"node": "Preserve Slack Fields", "type": "main", "index": 0}]]
+      "main": [[{"node": "Preserve Slack Fields", "type": "main", "index": 0}, {"node": "Call AI", "type": "main", "index": 0}]]
     },
     "Preserve Slack Fields": {
-      "main": [[{"node": "Call AI", "type": "main", "index": 0}]]
+      "main": [[{"node": "Merge Slack + Router", "type": "main", "index": 0}]]
     },
     "Call AI": {
+      "main": [[{"node": "Merge Slack + Router", "type": "main", "index": 1}]]
+    },
+    "Merge Slack + Router": {
       "main": [[{"node": "Normalize Answer", "type": "main", "index": 0}]]
     },
     "Normalize Answer": {
-      "main": [[{"node": "Assert response_url", "type": "main", "index": 0}]]
-    },
-    "Assert response_url": {
       "main": [[{"node": "Respond to Slack", "type": "main", "index": 0}]]
-    },
-    "Respond to Slack": {
-      "main": [[{"node": "Log Response", "type": "main", "index": 0}]]
     }
   },
   "settings": {
