@@ -37,3 +37,10 @@ Thumbs.db
 *.swo
 *~
 WORKLOG-*
+
+# Worklog directory
+worklog/
+
+# Model files (PCA)
+*.pkl
+pca_model.*
