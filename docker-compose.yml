@@ -47,6 +47,32 @@ services:
       N8N_PROTOCOL: https
       WEBHOOK_URL: https://${N8N_HOST}/
 
+      # Brain provider selection
+      BRAIN_PROVIDER: ${BRAIN_PROVIDER:-kimi}
+      BRAIN_MODEL: ${BRAIN_MODEL:-kimi-k2.5}
+      BRAIN_TEMPERATURE: ${BRAIN_TEMPERATURE:-0.2}
+
+      # Kimi (Moonshot) API
+      KIMI_BASE_URL: ${KIMI_BASE_URL:-https://api.moonshot.cn/v1}
+      KIMI_API_KEY: ${KIMI_API_KEY}
+
+      # OpenAI / ChatGPT API
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+      # Safety / policy knobs
+      BRAIN_MAX_INPUT_CHARS: ${BRAIN_MAX_INPUT_CHARS:-6000}
+      BRAIN_MAX_CONTEXT_ITEMS: ${BRAIN_MAX_CONTEXT_ITEMS:-8}
+
+      # Circuit breaker settings
+      BRAIN_CB_ENABLED: ${BRAIN_CB_ENABLED:-true}
+      BRAIN_CB_WINDOW_SECONDS: ${BRAIN_CB_WINDOW_SECONDS:-60}
+      BRAIN_CB_MAX_CONSEC_FAILS: ${BRAIN_CB_MAX_CONSEC_FAILS:-2}
+
+      # Adaptive routing settings
+      BRAIN_MAX_FAILURE_RATE: ${BRAIN_MAX_FAILURE_RATE:-0.5}
+      BRAIN_LATENCY_LOOKBACK_MINUTES: ${BRAIN_LATENCY_LOOKBACK_MINUTES:-15}
+
     volumes:
       - ./n8n:/home/node/.n8n
       - ./tools/pca_model.pkl:/workspace/pca_model.pkl:ro
