@@ -97,7 +97,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO memory_vectors (tenant_id, scope, content, embedding, created_at)\nVALUES ('{{ $input.first().json.tenant_id }}', '{{ $input.first().json.scope }}', '{{ $input.first().json.text.replace(/'/g, \"''\") }}', '{{ $input.first().json.embedding }}'::vector, NOW());",
+        "query": "INSERT INTO memory_vectors (tenant_id, scope, content, embedding, created_at)\nVALUES ('{{ $input.first().json.tenant_id }}', '{{ $input.first().json.scope }}', '{{ $input.first().json.text.replace(/'/g, "''") }}', '{{ $input.first().json.embedding }}'::vector, NOW())\nRETURNING id;",
         "additionalFields": {}
       },
       "type": "n8n-nodes-base.postgres",
@@ -113,13 +113,22 @@
     },
     {
       "parameters": {
+        "jsCode": "// Merge Insert Vector result with original data\nconst insertResult = $input.first().json;\nconst original = $('Parse Embedding').first().json;\n\nreturn [{\n  json: {\n    ...original,\n    id: insertResult[0]?.id || null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1620, 400],
+      "name": "Prepare Response"
+    },
+    {
+      "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO audit_events (actor, action, target, decision, created_at)\nVALUES ('workflow:memory_ingest', 'memory_write', '{{ $input.first().json.scope }}', 'allowed', NOW());",
         "additionalFields": {}
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [1650, 400],
+      "position": [1750, 400],
       "name": "Insert Audit",
       "credentials": {
         "postgres": {
@@ -131,11 +140,11 @@
     {
       "parameters": {
         "respondWith": "json",
-        "json": "={{ JSON.stringify({ status: \"success\", message: \"Memory ingested\", facts_stored: $input.all()[0].json.facts.length }) }}"
+        "jsCode": "const result = $input.first().json;\nconst response = {\n  status: 'success',\n  message: 'Memory ingested successfully',\n  id: result.id || null,\n  tenant_id: result.tenant_id,\n  scope: result.scope,\n  content_hash: result.content_hash || null,\n  cached: result.cached || false,\n  facts_stored: Array.isArray(result.facts) ? result.facts.length : 0,\n  timestamp: new Date().toISOString()\n};\nreturn [{ json: response }];"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1850, 400],
+      "position": [1950, 400],
       "name": "Success Response"
     }
   ],
@@ -212,6 +221,17 @@
       ]
     },
     "Insert Vector": {
+      "main": [
+        [
+          {
+            "node": "Prepare Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Response": {
       "main": [
         [
           {

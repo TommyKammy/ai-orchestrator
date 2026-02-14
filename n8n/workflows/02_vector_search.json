@@ -116,11 +116,11 @@
     {
       "parameters": {
         "respondWith": "json",
-        "json": "={{ JSON.stringify({ status: \"success\", mode: \"vector_cosine\", items: $input.all()[0].json }) }}"
+        "jsCode": "const searchResults = $input.first().json;\nconst original = $('Check Validation').first().json;\n\nconst response = {\n  status: 'success',\n  mode: 'vector_cosine',\n  query: original.query,\n  tenant_id: original.tenant_id,\n  scope: original.scope,\n  k: original.k,\n  results_count: Array.isArray(searchResults) ? searchResults.length : 0,\n  results: Array.isArray(searchResults) ? searchResults.map(r => ({\n    id: r.id,\n    scope: r.scope,\n    content: r.content,\n    tags: r.tags,\n    source: r.source,\n    created_at: r.created_at,\n    cosine_distance: r.cosine_distance\n  })) : [],\n  timestamp: new Date().toISOString()\n};\n\nreturn [{ json: response }];"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1650, 400],
+      "position": [1750, 400],
       "name": "Success Response"
     }
   ],
