@@ -49,6 +49,7 @@ services:
 
     volumes:
       - ./n8n:/home/node/.n8n
+      - ./tools/pca_model.pkl:/workspace/pca_model.pkl:ro
 
     depends_on:
       - postgres
@@ -66,6 +67,7 @@ services:
     volumes:
       - ./executor:/workspace:ro
       - ./logs:/logs
+      - ./tools:/tools:ro
     working_dir: /workspace
 
   caddy:
