@@ -1,5 +1,5 @@
 {
-  "name": "01 Memory Ingest",
+  "name": "01 Memory Ingest v3 (with Cache)",
   "nodes": [
     {
       "parameters": {
@@ -10,7 +10,7 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [250, 300],
-      "webhookId": "memory-ingest",
+      "webhookId": "memory-ingest-v3",
       "name": "Webhook"
     },
     {
@@ -43,13 +43,60 @@
     },
     {
       "parameters": {
+        "jsCode": "// Compute SHA256 hash of content for caching\nconst data = $input.first().json;\nconst crypto = require('crypto');\nconst contentHash = crypto.createHash('sha256').update(data.text).digest('hex');\n\nreturn [{\n  json: {\n    ...data,\n    content_hash: contentHash\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [850, 400],
+      "name": "Compute Hash"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, embedding FROM memory_vectors\nWHERE tenant_id = $1 AND scope = $2 AND content_hash = $3\nLIMIT 1;",
+        "additionalFields": {
+          "queryReplacement": "={{ [$input.first().json.tenant_id, $input.first().json.scope, $input.first().json.content_hash] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1050, 400],
+      "name": "Check Cache",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if we got a cache hit\nconst result = $input.first().json;\nconst hasCacheHit = result && result.length > 0 && result[0].id;\n\nif (hasCacheHit) {\n  // Return cache hit info\n  const original = $('Compute Hash').first().json;\n  return [{\n    json: {\n      ...original,\n      cached: true,\n      cached_id: result[0].id\n    }\n  }];\n} else {\n  // No cache - proceed with embedding generation\n  const original = $('Compute Hash').first().json;\n  return [{\n    json: {\n      ...original,\n      cached: false\n    }\n  }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1250, 400],
+      "name": "If Cached"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "json": "={{ JSON.stringify({ status: \"success\", message: \"Cache hit - embedding already exists\", cached: true, id: $input.first().json.cached_id }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1450, 200],
+      "name": "Cache Hit Response"
+    },
+    {
+      "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO memory_facts (subject, predicate, object, confidence)\nVALUES {{ $input.all()[0].json.facts.map(f => `('${f.subject.replace(/'/g, \"''\")}', '${f.predicate.replace(/'/g, \"''\")}', '${f.object.replace(/'/g, \"''\")}', ${f.confidence})`).join(',') }};",
         "additionalFields": {}
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [850, 400],
+      "position": [1450, 500],
       "name": "Insert Facts",
       "credentials": {
         "postgres": {
@@ -78,31 +125,36 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"model\": $env.GEMINI_EMBED_MODEL,\n  \"content\": {\n    \"parts\": [\n      {\n        \"text\": $json.text\n      }\n    ]\n  }\n}",
-        "options": {}
+        "options": {
+          "retry": {
+            "retries": 3,
+            "retryDelay": 1000
+          }
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1050, 400],
+      "position": [1650, 500],
       "name": "Generate Embedding"
     },
     {
       "parameters": {
-        "jsCode": "const response = $input.first().json;\nconst values = response?.embedding?.values;\n\nif (!Array.isArray(values) || values.length === 0) {\n  throw new Error('Invalid embedding response from Gemini');\n}\n\n// Reduce to 1536 dimensions for pgvector compatibility\nconst TARGET_DIM = 1536;\nconst reduced = values.slice(0, TARGET_DIM);\nconst original = $('Check Validation').first().json;\n\nreturn [{\n  json: {\n    ...original,\n    embedding: `[${reduced.join(',')}]`\n  }\n}];"
+        "jsCode": "const response = $input.first().json;\nconst values = response?.embedding?.values;\n\nif (!Array.isArray(values) || values.length === 0) {\n  throw new Error('Invalid embedding response from Gemini');\n}\n\n// Reduce to 1536 dimensions for pgvector compatibility\nconst TARGET_DIM = 1536;\nconst reduced = values.slice(0, TARGET_DIM);\nconst original = $('If Cached').first().json;\n\nreturn [{\n  json: {\n    ...original,\n    embedding: `[${reduced.join(',')}]`\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
-      "position": [1250, 400],
+      "position": [1850, 500],
       "name": "Parse Embedding"
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO memory_vectors (tenant_id, scope, content, embedding, created_at)\nVALUES ('{{ $input.first().json.tenant_id }}', '{{ $input.first().json.scope }}', '{{ $input.first().json.text.replace(/'/g, \"''\") }}', '{{ $input.first().json.embedding }}'::vector, NOW());",
+        "query": "INSERT INTO memory_vectors (tenant_id, scope, content, embedding, content_hash, created_at)\nVALUES ('{{ $input.first().json.tenant_id }}', '{{ $input.first().json.scope }}', '{{ $input.first().json.text.replace(/'/g, \"''\") }}', '{{ $input.first().json.embedding }}'::vector, '{{ $input.first().json.content_hash }}', NOW());",
         "additionalFields": {}
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [1450, 400],
+      "position": [2050, 500],
       "name": "Insert Vector",
       "credentials": {
         "postgres": {
@@ -119,7 +171,7 @@
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [1650, 400],
+      "position": [2250, 500],
       "name": "Insert Audit",
       "credentials": {
         "postgres": {
@@ -131,11 +183,11 @@
     {
       "parameters": {
         "respondWith": "json",
-        "json": "={{ JSON.stringify({ status: \"success\", message: \"Memory ingested\", facts_stored: $input.all()[0].json.facts.length }) }}"
+        "json": "={{ JSON.stringify({ status: \"success\", message: \"Memory ingested\", cached: false, facts_stored: $input.all()[0].json.facts.length }) }}"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1850, 400],
+      "position": [2450, 500],
       "name": "Success Response"
     }
   ],
@@ -167,6 +219,44 @@
         [
           {
             "node": "Error Response",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Compute Hash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Hash": {
+      "main": [
+        [
+          {
+            "node": "Check Cache",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Cache": {
+      "main": [
+        [
+          {
+            "node": "If Cached",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Cached": {
+      "main": [
+        [
+          {
+            "node": "Cache Hit Response",
             "type": "main",
             "index": 0
           },

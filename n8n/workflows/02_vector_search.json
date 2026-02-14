@@ -4,7 +4,7 @@
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "memory/search",
+        "path": "memory/search-v3",
         "responseMode": "responseNode"
       },
       "type": "n8n-nodes-base.webhook",
@@ -15,7 +15,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const input = $input.first().json.body;\n\nif (!input.scope || !input.query) {\n  return [{\n    json: {\n      error: 'Missing required fields: scope, query'\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    scope: input.scope,\n    query: input.query,\n    k: input.k || 5\n  }\n}];"
+        "jsCode": "const input = $input.first().json.body;\n\nif (!input.tenant_id || !input.scope || !input.query) {\n  return [{\n    json: {\n      error: 'Missing required fields: tenant_id, scope, query'\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    tenant_id: input.tenant_id,\n    scope: input.scope,\n    query: input.query,\n    k: input.k || 5\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
@@ -43,13 +43,51 @@
     },
     {
       "parameters": {
+        "method": "POST",
+        "url": "={{$env.GEMINI_EMBED_ENDPOINT}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-goog-api-key",
+              "value": "={{$env.GEMINI_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": $env.GEMINI_EMBED_MODEL,\n  \"content\": {\n    \"parts\": [\n      {\n        \"text\": $json.query\n      }\n    ]\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 400],
+      "name": "Generate Query Embedding"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst values = response?.embedding?.values;\n\nif (!Array.isArray(values) || values.length === 0) {\n  throw new Error('Invalid embedding response from Gemini');\n}\n\n// Reduce to 1536 dimensions for pgvector compatibility\nconst TARGET_DIM = 1536;\nconst reduced = values.slice(0, TARGET_DIM);\nconst original = $('Check Validation').first().json;\n\nreturn [{\n  json: {\n    ...original,\n    embedding: `[${reduced.join(',')}]`\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1050, 400],
+      "name": "Parse Embedding"
+    },
+    {
+      "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT id, scope, content, created_at\nFROM memory_vectors\nWHERE scope = '{{ $input.first().json.scope }}'\n  AND content ILIKE '%{{ $input.first().json.query.replace(/'/g, \"''\") }}%'\nORDER BY created_at DESC\nLIMIT {{ $input.first().json.k }};",
-        "additionalFields": {}
+        "query": "SELECT id, scope, content, tags, source, created_at,\n       (embedding <=> $1::vector) AS cosine_distance\nFROM memory_vectors\nWHERE tenant_id = $2 AND scope = $3\nORDER BY embedding <=> $1::vector\nLIMIT $4;",
+        "additionalFields": {
+          "queryReplacement": "={{ [$input.first().json.embedding, $input.first().json.tenant_id, $input.first().json.scope, Number($input.first().json.k)] }}"
+        }
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [850, 400],
+      "position": [1250, 400],
       "name": "Search Vectors",
       "credentials": {
         "postgres": {
@@ -66,7 +104,7 @@
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [1050, 400],
+      "position": [1450, 400],
       "name": "Insert Audit",
       "credentials": {
         "postgres": {
@@ -78,11 +116,11 @@
     {
       "parameters": {
         "respondWith": "json",
-        "json": "={{ JSON.stringify({ status: \"success\", mode: \"ilike_fallback\", items: $input.all()[0].json }) }}"
+        "json": "={{ JSON.stringify({ status: \"success\", mode: \"vector_cosine\", items: $input.all()[0].json }) }}"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1250, 400],
+      "position": [1650, 400],
       "name": "Success Response"
     }
   ],
@@ -117,6 +155,28 @@
             "type": "main",
             "index": 0
           },
+          {
+            "node": "Generate Query Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Query Embedding": {
+      "main": [
+        [
+          {
+            "node": "Parse Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Embedding": {
+      "main": [
+        [
           {
             "node": "Search Vectors",
             "type": "main",
