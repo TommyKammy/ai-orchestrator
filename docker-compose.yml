@@ -73,6 +73,18 @@ services:
       BRAIN_MAX_FAILURE_RATE: ${BRAIN_MAX_FAILURE_RATE:-0.5}
       BRAIN_LATENCY_LOOKBACK_MINUTES: ${BRAIN_LATENCY_LOOKBACK_MINUTES:-15}
 
+      # Logging and execution settings
+      N8N_LOG_LEVEL: debug
+      N8N_LOG_OUTPUT: console
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: 168
+      
+      # Timezone
+      TZ: Asia/Tokyo
+      GENERIC_TIMEZONE: Asia/Tokyo
+
     volumes:
       - ./n8n:/home/node/.n8n
       - ./tools/pca_model.pkl:/workspace/pca_model.pkl:ro
