@@ -221,6 +221,46 @@ python3 scripts/validate_slack_workflows.py  # JSON validation
 bash scripts/ci/n8n_import_test.sh          # Import test
 ```
 
+### CI Signature Verification Bypass (Safe)
+
+For CI testing only, the workflow supports disabling Slack signature verification via environment variable:
+
+```bash
+SLACK_SIG_VERIFY_ENABLED=false  # CI only - skips signature check
+SLACK_SIG_VERIFY_ENABLED=true   # Production default - verifies signatures
+```
+
+This allows CI to test the webhook execution path without real Slack secrets. Production remains fully verified.
+
+### NO-BRAIN Fallback Behavior
+
+When no LLM provider API keys are configured, the system returns a clear fallback message instead of failing silently:
+
+**Detection:** The `chat_router_v1` workflow checks for `KIMI_API_KEY` and `OPENAI_API_KEY` environment variables before attempting to call any brain provider.
+
+**Fallback Response:**
+```json
+{
+  "status": "no_brain_configured",
+  "provider": "none",
+  "answer": "⚠️ AI brain is not configured yet.\n\nPlease configure one of the following environment variables:\n- KIMI_API_KEY\n- OPENAI_API_KEY\n\nThe system infrastructure is working correctly, but no LLM provider is available."
+}
+```
+
+**Configuration:**
+Add one of these to your `.env` file:
+```bash
+# Option 1: Kimi (Moonshot AI)
+KIMI_API_KEY=your_kimi_api_key_here
+KIMI_BASE_URL=https://api.moonshot.cn/v1
+
+# Option 2: OpenAI
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
+The system works without LLM keys for testing infrastructure, but will return the fallback message for all chat requests until configured.
+
 ### Slack Integration Note
 
 When exporting Slack workflow from n8n, ensure the "Immediate ACK" node uses **hard-coded JSON**, not expressions:

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "=========================================="
-echo "N8N Import Test - Webhook Verification"
+echo "N8N Import + Execution Test"
 echo "=========================================="
 echo ""
 
@@ -22,14 +22,15 @@ if [ ! -d "$WORKFLOW_DIR" ]; then
   exit 1
 fi
 
-echo "[1/6] Starting n8n container..."
+echo "[1/7] Starting n8n container with CI settings..."
 docker run -d --name "$CONTAINER_NAME" \
   -p 5678:5678 \
   -e N8N_BASIC_AUTH_ACTIVE=false \
   -e N8N_DIAGNOSTICS_ENABLED=false \
   -e N8N_PERSONALIZATION_ENABLED=false \
   -e N8N_USER_MANAGEMENT_DISABLED=true \
-  -e N8N_ENCRYPTION_KEY=test-key-for-ci-only-do-not-use-in-production \
+  -e N8N_ENCRYPTION_KEY=test-key-for-ci-only \
+  -e SLACK_SIG_VERIFY_ENABLED=false \
   -v "$WORKFLOW_DIR:/import:ro" \
   "$N8N_IMAGE" 2>&1
 
@@ -38,7 +39,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "[2/6] Waiting for n8n to be ready..."
+echo "[2/7] Waiting for n8n to be ready..."
 for i in $(seq 1 $TIMEOUT); do
   if docker exec "$CONTAINER_NAME" wget -qO- http://localhost:5678/healthz 2>/dev/null | grep -q "ok"; then
     echo "      n8n is ready!"
@@ -52,7 +53,7 @@ for i in $(seq 1 $TIMEOUT); do
   sleep 1
 done
 
-echo "[3/6] Importing workflows..."
+echo "[3/7] Importing workflows..."
 WORKFLOW_FILES=(
   "slack_chat_minimal_v1.json"
   "chat_router_v1.json"
@@ -71,12 +72,12 @@ for workflow in "${WORKFLOW_FILES[@]}"; do
   fi
 done
 
-echo "[4/6] Activating workflows..."
+echo "[4/7] Activating workflows..."
 docker exec "$CONTAINER_NAME" sh -c '
   sqlite3 /home/node/.n8n/database.sqlite "UPDATE workflow_entity SET active = 1 WHERE name LIKE '%slack%';"
 ' 2>&1
 
-echo "[5/6] Verifying webhook registrations..."
+echo "[5/7] Verifying webhook registrations..."
 WEBHOOKS=$(docker exec "$CONTAINER_NAME" sh -c '
   sqlite3 /home/node/.n8n/database.sqlite "SELECT webhookPath FROM webhook_entity;" 2>/dev/null || echo ""
 ' 2>&1)
@@ -97,24 +98,57 @@ else
   echo ""
   echo "Registered webhooks:"
   echo "$WEBHOOKS"
-  echo ""
-  echo "[diagnostic] Database contents:"
-  docker exec "$CONTAINER_NAME" sh -c '
-    sqlite3 /home/node/.n8n/database.sqlite "SELECT name FROM workflow_entity;"
-  ' 2>&1 || true
   exit 1
 fi
 
-echo "[6/6] Verification complete!"
+echo "[6/7] Testing webhook execution..."
+echo "      POST to /webhook/slack-command..."
+
+RESPONSE=$(curl -s -i -X POST "http://localhost:5678/webhook/slack-command" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "user_id=U_CI_TEST&channel_id=C_CI_TEST&text=hello&response_url=https%3A%2F%2Fexample.com" 2>&1)
+
+HTTP_STATUS=$(echo "$RESPONSE" | head -1 | grep -oE '[0-9]{3}' | head -1)
+BODY=$(echo "$RESPONSE" | tail -n +$(echo "$RESPONSE" | grep -n '^$' | head -1 | cut -d: -f1))
+
+echo "      HTTP Status: $HTTP_STATUS"
+echo "      Response Body: $BODY"
+
+if [ "$HTTP_STATUS" != "200" ]; then
+  echo ""
+  echo "ERROR: Expected HTTP 200, got $HTTP_STATUS"
+  echo ""
+  echo "Last 50 lines of n8n logs:"
+  docker logs "$CONTAINER_NAME" --tail 50
+  exit 1
+fi
+
+if echo "$BODY" | grep -q "Processing your request"; then
+  echo ""
+  echo "✓ Webhook execution successful - received immediate ACK"
+else
+  echo ""
+  echo "ERROR: Response does not contain 'Processing your request'"
+  echo ""
+  echo "Full response:"
+  echo "$RESPONSE"
+  echo ""
+  echo "Last 100 lines of n8n logs:"
+  docker logs "$CONTAINER_NAME" --tail 100
+  exit 1
+fi
+
+echo "[7/7] All tests complete!"
 echo ""
 echo "=========================================="
-echo "✓ All checks passed"
+echo "✓ ALL CHECKS PASSED"
 echo "=========================================="
 echo ""
 echo "Summary:"
 echo "  - Container started successfully"
 echo "  - Workflows imported"
 echo "  - Webhook 'slack-command' registered"
+echo "  - Webhook execution returned immediate ACK"
 echo ""
 
 exit 0
