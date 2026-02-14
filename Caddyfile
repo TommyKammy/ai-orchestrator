@@ -9,28 +9,13 @@ n8n-s-app01.tmcast.net {
         Referrer-Policy "strict-origin-when-cross-origin"
     }
 
-    # Rate limiting for webhook endpoints
-    # Limit to 30 requests per minute per IP
-    @webhookRateLimited {
-        path /webhook/*
-        remote_ip forwarded
-        rate_limit {
-            zone webhook_limit {
-                key {remote_host}
-                events 30
-                window 1m
-            }
-        }
-    }
-
-    respond @webhookRateLimited 429 {
-        body "Rate limit exceeded: Maximum 30 requests per minute"
-    }
-
     # Handle Slack slash commands - bypass API key check
     # Security compensated by internal auth header (Caddy adds this, external requests cannot)
     handle /webhook/slack-command {
         reverse_proxy n8n:5678 {
+            # Strip any client-provided X-Internal-Auth header to prevent spoofing
+            header_up -X-Internal-Auth
+            # Inject our trusted internal auth header
             header_up X-Internal-Auth {env.SLACK_INTERNAL_AUTH}
         }
     }
