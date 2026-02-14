@@ -10,51 +10,42 @@
           "rawBody": true
         }
       },
+      "id": "webhook-node-1",
+      "name": "Slack Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [
         250,
         300
       ],
-      "webhookId": "slack-command-v2",
-      "name": "Webhook"
+      "webhookId": "slack-command-v3"
     },
     {
       "parameters": {
         "respondWith": "json",
         "json": "{\n  \"response_type\": \"ephemeral\",\n  \"text\": \"Processing your request...\"\n}"
       },
+      "id": "ack-node-1",
+      "name": "Immediate ACK",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
         450,
         200
-      ],
-      "name": "ACK Response"
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const crypto = require('crypto');\n\nconst verifyEnabled = ($env.SLACK_SIG_VERIFY_ENABLED || 'true').toLowerCase() !== 'false';\nif (!verifyEnabled) {\n  const params = new URLSearchParams($json.body);\n  return [{json: {\n    verified: true,\n    bypass: 'ci',\n    user_id: params.get('user_id'),\n    user_name: params.get('user_name'),\n    channel_id: params.get('channel_id'),\n    text: params.get('text'),\n    response_url: params.get('response_url'),\n    tenant_id: 't1',\n    scope: 'slack:user:' + params.get('user_id')\n  }}];\n}\n\nconst secret = $env.SLACK_SIGNING_SECRET;\nif (!secret) throw new Error('Missing SLACK_SIGNING_SECRET');\nconst ts = $headers['x-slack-request-timestamp'];\nconst sig = $headers['x-slack-signature'];\nif (!ts || !sig) throw new Error('Missing Slack headers');\nconst now = Math.floor(Date.now()/1000);\nif (Math.abs(now - parseInt(ts,10)) > 300) throw new Error('Request expired');\nlet raw = '';\nif (typeof $json.body === 'string') raw = $json.body;\nelse if ($json.body && typeof $json.body === 'object') {\n  const p = new URLSearchParams();\n  for (const [k,v] of Object.entries($json.body)) { if (v!=null) p.append(k, String(v)); }\n  raw = p.toString();\n}\nif (!raw) throw new Error('No body');\nconst base = 'v0:' + ts + ':' + raw;\nconst expected = 'v0=' + crypto.createHmac('sha256', secret).update(base).digest('hex');\nconst a = Buffer.from(expected), b = Buffer.from(sig);\nif (a.length !== b.length || !crypto.timingSafeEqual(a,b)) throw new Error('Invalid signature');\nconst params = new URLSearchParams(raw);\nreturn [{json:{\n  verified: true,\n  user_id: params.get('user_id'),\n  user_name: params.get('user_name'),\n  channel_id: params.get('channel_id'),\n  text: params.get('text'),\n  response_url: params.get('response_url'),\n  tenant_id: 't1',\n  scope: 'slack:user:' + params.get('user_id')\n}}];"
+        "jsCode": "const crypto = require('crypto');\nconst secret = $env.SLACK_SIGNING_SECRET;\nif (!secret) throw new Error('Missing SLACK_SIGNING_SECRET');\nconst ts = $headers['x-slack-request-timestamp'];\nconst sig = $headers['x-slack-signature'];\nif (!ts || !sig) throw new Error('Missing Slack headers');\nconst now = Math.floor(Date.now()/1000);\nif (Math.abs(now - parseInt(ts,10)) > 300) throw new Error('Request expired');\nlet raw = '';\nif (typeof $json.body === 'string') raw = $json.body;\nelse if ($json.body && typeof $json.body === 'object') {\n  const p = new URLSearchParams();\n  for (const [k,v] of Object.entries($json.body)) { if (v!=null) p.append(k, String(v)); }\n  raw = p.toString();\n}\nif (!raw) throw new Error('No body');\nconst base = `v0:${ts}:${raw}`;\nconst expected = 'v0=' + crypto.createHmac('sha256', secret).update(base).digest('hex');\nconst a = Buffer.from(expected), b = Buffer.from(sig);\nif (a.length !== b.length || !crypto.timingSafeEqual(a,b)) throw new Error('Invalid signature');\nconst params = new URLSearchParams(raw);\nreturn [{json:{verified:true, user_id:params.get('user_id'), user_name:params.get('user_name'), channel_id:params.get('channel_id'), text:params.get('text'), response_url:params.get('response_url'), tenant_id:'t1', scope:'slack:user:'+params.get('user_id')}}];"
       },
+      "id": "verify-node-1",
+      "name": "Verify Signature",
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
       "position": [
         450,
         400
-      ],
-      "name": "Verify Slack Signature"
-    },
-    {
-      "parameters": {
-        "jsCode": "const input = $input.first().json;\nreturn [{\n  json: {\n    slack_response_url: input.response_url,\n    slack_user_id: input.user_id,\n    slack_text: input.text,\n    tenant_id: input.tenant_id,\n    scope: input.scope,\n    text: input.text\n  }\n}];"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 1,
-      "position": [
-        550,
-        400
-      ],
-      "name": "Preserve Slack Fields"
+      ]
     },
     {
       "parameters": {
@@ -69,62 +60,27 @@
             },
             {
               "name": "X-API-Key",
-              "value": "={{$env.N8N_WEBHOOK_API_KEY}}"
+              "value": "={{ $env.N8N_WEBHOOK_API_KEY }}"
             }
           ]
         },
         "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "tenant_id",
-              "value": "={{$json.tenant_id}}"
-            },
-            {
-              "name": "scope",
-              "value": "={{$json.scope}}"
-            },
-            {
-              "name": "message",
-              "value": "={{$json.text}}"
-            },
-            {
-              "name": "k",
-              "value": "3"
-            }
-          ]
-        },
         "specifyBody": "json",
-        "jsonBody": "={JSON.stringify({tenant_id: $json.tenant_id, scope: $json.scope, message: $json.text, k: 3})}",
-        "options": {
-          "ignoreHttpStatusErrors": true
-        }
+        "jsonBody": "={{JSON.stringify({tenant_id:$json.tenant_id, scope:$json.scope, message:$json.text, k:3})}}"
       },
+      "id": "http-node-1",
+      "name": "Call AI",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        650,
+        850,
         400
-      ],
-      "name": "Call chat_router_v1",
-      "continueOnFail": true
-    },
-    {
-      "parameters": {
-        "jsCode": "const routerResponse = $json || {};\nconst preserved = $('Preserve Slack Fields').first().json;\n\nconst responseUrl =\n  preserved?.slack_response_url ??\n  routerResponse.response_url ??\n  null;\n\nconst answer =\n  routerResponse.answer ??\n  routerResponse.body?.answer ??\n  routerResponse.data?.answer ??\n  routerResponse.response?.answer ??\n  null;\n\nconst safeAnswer =\n  answer \u0026\u0026 String(answer).trim().length\n    ? String(answer).trim()\n    : \"⚠️ AI brain is not configured yet.\\n\\nPlease configure KIMI_API_KEY or OPENAI_API_KEY in .env and restart services.\\n\\n(The system infrastructure is working correctly, but no LLM provider is available.)\";\n\nreturn [{\n  json: {\n    response_url: responseUrl,\n    answer: safeAnswer,\n    slack_user_id: preserved?.slack_user_id,\n    slack_text: preserved?.slack_text\n  }\n}];"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 1,
-      "position": [
-        750,
-        400
-      ],
-      "name": "Normalize Answer"
+      ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{$json.response_url}}",
+        "url": "={{ $json.response_url }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -135,52 +91,63 @@
           ]
         },
         "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "response_type",
-              "value": "ephemeral"
-            },
-            {
-              "name": "text",
-              "value": "={{$json.answer || 'No response received from AI'}}"
-            }
-          ]
-        },
         "specifyBody": "json",
-        "jsonBody": "={JSON.stringify({response_type: 'ephemeral', text: $json.answer || 'No response received from AI'})}",
-        "options": {
-          "ignoreHttpStatusErrors": true
-        }
+        "jsonBody": "={{JSON.stringify({response_type:'ephemeral', text:$json.answer || 'No response from AI'})}}"
       },
+      "id": "respond-node-1",
+      "name": "Respond to Slack",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        850,
+        1250,
         400
-      ],
-      "name": "Respond to Slack",
-      "continueOnFail": true
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    ...$json,\n    slack_response_url: $json.response_url,\n    slack_user_id: $json.user_id,\n    slack_text: $json.text\n  }\n}];\n"
+      },
+      "id": "preserve-node-1",
+      "name": "Preserve Slack Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        650,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prior = $node[\"Preserve Slack Fields\"]?.json || {};\nconst j = $json || {};\n\nconst responseUrl = prior.slack_response_url ?? prior.response_url ?? j.response_url ?? null;\n\nconst answer =\n  j.answer ??\n  j.body?.answer ??\n  j.data?.answer ??\n  j.response?.answer ??\n  null;\n\nconst safeAnswer =\n  answer && String(answer).trim().length\n    ? String(answer).trim()\n    : \"⚠️ AI brain is not configured yet.\\n\\nPlease configure one of:\\n- KIMI_API_KEY\\n- OPENAI_API_KEY\\n\\n(Infra is working; only the LLM provider is missing.)\";\n\nreturn [{\n  json: {\n    ...prior,\n    ...j,\n    response_url: responseUrl,\n    answer: safeAnswer\n  }\n}];\n"
+      },
+      "id": "normalize-node-1",
+      "name": "Normalize Answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1050,
+        400
+      ]
     }
   ],
   "connections": {
-    "Webhook": {
+    "Slack Webhook": {
       "main": [
         [
           {
-            "node": "ACK Response",
+            "node": "Immediate ACK",
             "type": "main",
             "index": 0
           },
           {
-            "node": "Verify Slack Signature",
+            "node": "Verify Signature",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Verify Slack Signature": {
+    "Verify Signature": {
       "main": [
         [
           {
@@ -195,14 +162,14 @@
       "main": [
         [
           {
-            "node": "Call chat_router_v1",
+            "node": "Call AI",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Call chat_router_v1": {
+    "Call AI": {
       "main": [
         [
           {
@@ -226,8 +193,12 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
   },
   "staticData": null,
-  "tags": []
+  "tags": [],
+  "pinData": {}
 }
