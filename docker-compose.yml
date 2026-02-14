@@ -1,4 +1,4 @@
-version: "3.9"
+[sudo] tommy のパスワード: version: "3.9"
 
 services:
 
@@ -84,6 +84,9 @@ services:
       # Timezone
       TZ: Asia/Tokyo
       GENERIC_TIMEZONE: Asia/Tokyo
+
+      # Trust proxy headers (we're behind Caddy reverse proxy)
+      N8N_PROXY_HOPS: 1
 
     volumes:
       - ./n8n:/home/node/.n8n
