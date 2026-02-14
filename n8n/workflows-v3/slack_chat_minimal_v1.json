@@ -1,4 +1,3 @@
-Updated Verify Signature node with CI toggle
 {
   "name": "slack_chat_minimal_v1",
   "nodes": [
@@ -75,7 +74,7 @@ Updated Verify Signature node with CI toggle
             },
             {
               "name": "message",
-              "value": "={{$json.message}}"
+              "value": "={{$json.text}}"
             },
             {
               "name": "k",
@@ -84,7 +83,10 @@ Updated Verify Signature node with CI toggle
           ]
         },
         "specifyBody": "json",
-        "jsonBody": "={JSON.stringify({tenant_id: $json.tenant_id, scope: $json.scope, message: $json.message, k: 3})}"
+        "jsonBody": "={JSON.stringify({tenant_id: $json.tenant_id, scope: $json.scope, message: $json.text, k: 3})}",
+        "options": {
+          "ignoreHttpStatusErrors": true
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
@@ -92,7 +94,20 @@ Updated Verify Signature node with CI toggle
         650,
         400
       ],
-      "name": "Call chat_router_v1"
+      "name": "Call chat_router_v1",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $json || {};\nconst answer =\n  j.answer ??\n  j.body?.answer ??\n  j.data?.answer ??\n  j.response?.answer ??\n  null;\n\nconst safeAnswer =\n  answer \u0026\u0026 String(answer).trim().length\n    ? String(answer).trim()\n    : \"⚠️ AI brain is not configured yet.\\n\\nPlease set KIMI_API_KEY or OPENAI_API_KEY in .env and restart services.\\n\\n(Infra is working; only the LLM provider is missing.)\";\n\nreturn [{ json: { ...j, answer: safeAnswer } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        750,
+        400
+      ],
+      "name": "Normalize Answer"
     },
     {
       "parameters": {
@@ -121,7 +136,10 @@ Updated Verify Signature node with CI toggle
           ]
         },
         "specifyBody": "json",
-        "jsonBody": "={JSON.stringify({response_type: 'ephemeral', text: $json.answer || 'No response received from AI'})}"
+        "jsonBody": "={JSON.stringify({response_type: 'ephemeral', text: $json.answer || 'No response received from AI'})}",
+        "options": {
+          "ignoreHttpStatusErrors": true
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
@@ -129,7 +147,8 @@ Updated Verify Signature node with CI toggle
         850,
         400
       ],
-      "name": "Respond to Slack"
+      "name": "Respond to Slack",
+      "continueOnFail": true
     }
   ],
   "connections": {
@@ -161,6 +180,17 @@ Updated Verify Signature node with CI toggle
       ]
     },
     "Call chat_router_v1": {
+      "main": [
+        [
+          {
+            "node": "Normalize Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Answer": {
       "main": [
         [
           {
