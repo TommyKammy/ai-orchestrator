@@ -171,3 +171,42 @@ MIT License
 1. Ensure no secrets are committed
 2. Run security checks: `grep -r "CHANGE_ME\|password\|secret" . --include="*.yml" --include="*.py"`
 3. Test deployment locally before submitting PR
+
+## Development Workflow
+
+### Pre-commit Hooks (Recommended)
+
+Install git hooks to validate workflows before committing:
+
+```bash
+./tools/install-git-hooks.sh
+```
+
+This installs a pre-commit hook that:
+- Validates Slack workflow JSON files
+- Ensures "Immediate ACK" node is correctly configured
+- Prevents the `{"myField":"value"}` placeholder regression
+
+To run validation manually:
+
+```bash
+python3 scripts/validate_slack_workflows.py
+```
+
+### CI Validation
+
+GitHub Actions runs validation on every push and PR:
+- Validates Slack workflow configurations
+- Fails CI if ACK node is broken or uses expressions
+
+See `.github/workflows/validate-workflows.yml`
+
+### Slack Integration Note
+
+When exporting Slack workflow from n8n, ensure the "Immediate ACK" node uses **hard-coded JSON**, not expressions:
+
+```json
+{"response_type": "ephemeral", "text": "Processing your request..."}
+```
+
+Using expression mode (e.g., `={{JSON.stringify(...)}}`) causes n8n to fall back to `{"myField":"value"}` on import, breaking Slack responses.
