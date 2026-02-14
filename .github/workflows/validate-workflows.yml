@@ -17,3 +17,12 @@ jobs:
 
       - name: Validate Slack workflows
         run: python3 scripts/validate_slack_workflows.py
+
+  import-test:
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run n8n import test
+        run: bash scripts/ci/n8n_import_test.sh

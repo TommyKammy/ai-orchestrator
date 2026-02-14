@@ -201,6 +201,26 @@ GitHub Actions runs validation on every push and PR:
 
 See `.github/workflows/validate-workflows.yml`
 
+### CI Import Test (Extended Validation)
+
+In addition to JSON validation, CI also tests actual n8n import:
+
+```bash
+bash scripts/ci/n8n_import_test.sh
+```
+
+This test:
+1. Starts a temporary n8n container
+2. Imports workflows from `n8n/workflows-v3/`
+3. Verifies webhook registration for `/webhook/slack-command`
+4. Ensures import-time transformations don't break workflows
+
+Run locally before pushing:
+```bash
+python3 scripts/validate_slack_workflows.py  # JSON validation
+bash scripts/ci/n8n_import_test.sh          # Import test
+```
+
 ### Slack Integration Note
 
 When exporting Slack workflow from n8n, ensure the "Immediate ACK" node uses **hard-coded JSON**, not expressions:

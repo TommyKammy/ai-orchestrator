@@ -84,8 +84,12 @@ def main():
     print()
     
     for workflow_dir in workflow_dirs:
-        if not workflow_dir.exists():
-            print(f"Directory not found: {workflow_dir}")
+        try:
+            if not workflow_dir.exists():
+                print(f"Directory not found: {workflow_dir}")
+                continue
+        except PermissionError:
+            print(f"Permission denied: {workflow_dir}")
             continue
         
         workflow_files = list(workflow_dir.glob('*slack*.json'))
