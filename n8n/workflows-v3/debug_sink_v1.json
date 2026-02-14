@@ -1,0 +1,49 @@
+{
+  "name": "debug_sink_v1",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "debug/sink",
+        "responseMode": "responseNode"
+      },
+      "id": "debug-webhook-1",
+      "name": "Debug Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "debug-sink-v1"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "json": "{\n  \"ok\": true,\n  \"received\": \"data captured\"\n}"
+      },
+      "id": "debug-respond-1",
+      "name": "Debug Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [450, 300]
+    }
+  ],
+  "connections": {
+    "Debug Webhook": {
+      "main": [
+        [
+          {
+            "node": "Debug Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "tags": []
+}
