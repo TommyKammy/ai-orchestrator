@@ -46,6 +46,18 @@
     },
     {
       "parameters": {
+        "jsCode": "const input = $input.first().json;\nreturn [{\n  json: {\n    slack_response_url: input.response_url,\n    slack_user_id: input.user_id,\n    slack_text: input.text,\n    tenant_id: input.tenant_id,\n    scope: input.scope,\n    text: input.text\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        550,
+        400
+      ],
+      "name": "Preserve Slack Fields"
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "http://ai-n8n:5678/webhook/chat/router-v1",
         "sendHeaders": true,
@@ -99,7 +111,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const j = $json || {};\nconst answer =\n  j.answer ??\n  j.body?.answer ??\n  j.data?.answer ??\n  j.response?.answer ??\n  null;\n\nconst safeAnswer =\n  answer \u0026\u0026 String(answer).trim().length\n    ? String(answer).trim()\n    : \"⚠️ AI brain is not configured yet.\\n\\nPlease set KIMI_API_KEY or OPENAI_API_KEY in .env and restart services.\\n\\n(Infra is working; only the LLM provider is missing.)\";\n\nreturn [{ json: { ...j, answer: safeAnswer } }];"
+        "jsCode": "const routerResponse = $json || {};\nconst preserved = $('Preserve Slack Fields').first().json;\n\nconst responseUrl =\n  preserved?.slack_response_url ??\n  routerResponse.response_url ??\n  null;\n\nconst answer =\n  routerResponse.answer ??\n  routerResponse.body?.answer ??\n  routerResponse.data?.answer ??\n  routerResponse.response?.answer ??\n  null;\n\nconst safeAnswer =\n  answer \u0026\u0026 String(answer).trim().length\n    ? String(answer).trim()\n    : \"⚠️ AI brain is not configured yet.\\n\\nPlease configure KIMI_API_KEY or OPENAI_API_KEY in .env and restart services.\\n\\n(The system infrastructure is working correctly, but no LLM provider is available.)\";\n\nreturn [{\n  json: {\n    response_url: responseUrl,\n    answer: safeAnswer,\n    slack_user_id: preserved?.slack_user_id,\n    slack_text: preserved?.slack_text\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
@@ -169,6 +181,17 @@
       ]
     },
     "Verify Slack Signature": {
+      "main": [
+        [
+          {
+            "node": "Preserve Slack Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preserve Slack Fields": {
       "main": [
         [
           {
