@@ -79,6 +79,32 @@
     },
     {
       "parameters": {
+        "jsCode": "const prior = $node[\"Preserve Slack Fields\"]?.json || {};\nconst j = $json || {};\n\nconst responseUrl = prior.slack_response_url ?? prior.response_url ?? j.response_url ?? null;\n\nconst answer =\n  j.answer ??\n  j.body?.answer ??\n  j.data?.answer ??\n  j.response?.answer ??\n  null;\n\nconst safeAnswer =\n  answer && String(answer).trim().length\n    ? String(answer).trim()\n    : \"⚠️ AI brain is not configured yet.\\n\\nPlease configure one of:\\n- KIMI_API_KEY\\n- OPENAI_API_KEY\\n\\n(Infra is working; only the LLM provider is missing.)\";\n\nreturn [{\n  json: {\n    ...prior,\n    ...j,\n    response_url: responseUrl,\n    answer: safeAnswer\n  }\n}];\n"
+      },
+      "id": "normalize-node-1",
+      "name": "Normalize Answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1050,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "if (!$json.response_url || String($json.response_url).trim().length < 10) {\n  throw new Error(\"DIAGNOSTIC: Missing response_url before Respond to Slack. Available fields: \" + Object.keys($json || {}).join(', '));\n}\nreturn $input.all();"
+      },
+      "id": "assert-node-1",
+      "name": "Assert response_url",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1150,
+        400
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "={{ $json.response_url }}",
         "sendHeaders": true,
@@ -181,6 +207,17 @@
       ]
     },
     "Normalize Answer": {
+      "main": [
+        [
+          {
+            "node": "Assert response_url",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assert response_url": {
       "main": [
         [
           {
