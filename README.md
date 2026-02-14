@@ -36,6 +36,27 @@ n8n (Workflow Orchestration)
 - **Append-Only Audit Logging**: Tamper-proof audit trail
 - **Task Allowlist**: Executor only accepts predefined task types
 
+## ⚠️ Known Issues / Workarounds
+
+### Slack Signature Verification Temporarily Disabled
+
+**Issue**: n8n 2.7.4 blocks the `crypto` module in Code nodes due to security restrictions.
+**Impact**: Slack signature verification cannot use `require('crypto')`.
+**Workaround**: Set `SLACK_SIG_VERIFY_ENABLED=false` in docker-compose.yml to bypass verification.
+
+```yaml
+environment:
+  # Slack signature verification (TEMPORARILY DISABLED)
+  SLACK_SIG_VERIFY_ENABLED: "false"
+```
+
+**⚠️ SECURITY WARNING**: This disables Slack request signature verification. Only use this in controlled environments or for debugging. Re-enable after:
+- Upgrading n8n to a version that allows crypto module
+- Moving signature verification to an external service
+- Using n8n's built-in Slack trigger node instead of custom Code node
+
+**To re-enable**: Set `SLACK_SIG_VERIFY_ENABLED=true` (default) and ensure crypto module is available.
+
 ## Repository Structure
 
 ```
