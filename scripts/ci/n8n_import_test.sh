@@ -83,6 +83,12 @@ for wf in "${WORKFLOW_FILES[@]}"; do
   fi
 done
 
+# Ensure container user (node UID=1000) can read files
+chmod -R a+rX "$CI_IMPORT_DIR"
+
+# Debug: show permissions
+ls -la "$CI_IMPORT_DIR"
+
 echo "[1/7] Starting n8n container with CI settings..."
 docker run -d --name "$CONTAINER_NAME" \
   -p 5678:5678 \
