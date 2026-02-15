@@ -4,23 +4,15 @@ import sys
 from pathlib import Path
 
 def is_slack_webhook_workflow(workflow: dict) -> bool:
-    """Check if workflow is a Slack webhook entry workflow."""
+    """Check if workflow is Slack slash-command entry workflow."""
     nodes = workflow.get('nodes', [])
-    
-    # Check A: Has webhook trigger with slack path
+
     for node in nodes:
-        node_type = node.get('type', '')
-        if node_type == 'n8n-nodes-base.webhook':
+        if node.get('type') == 'n8n-nodes-base.webhook':
             path = node.get('parameters', {}).get('path', '')
-            if 'slack' in path.lower():
+            if path == 'slack-command':
                 return True
-    
-    # Check B: Has respondToWebhook node (indicates Slack interaction)
-    for node in nodes:
-        node_type = node.get('type', '')
-        if node_type == 'n8n-nodes-base.respondToWebhook':
-            return True
-    
+
     return False
 
 def validate_slack_workflow(filepath: Path) -> tuple[bool, list[str]]:
