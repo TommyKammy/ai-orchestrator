@@ -20,13 +20,20 @@
     },
     {
       "parameters": {
-        "jsCode": "// Load cursor from workflow static data\nconst data = this.getWorkflowStaticData('global');\nconst lastSeen = Number(data.lastSeenInternalDate || 0);\n\nreturn [{\n  json: {\n    lastSeenInternalDate: lastSeen\n  }\n}];"
+        "operation": "executeQuery",
+        "query": "SELECT last_seen_internal_date FROM gmail_cursor WHERE key = 'inbox';"
       },
-      "id": "code-load-cursor-1",
+      "id": "postgres-load-cursor-1",
       "name": "Load Cursor",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [450, 300]
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-ai-memory",
+          "name": "ai-memory Postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -161,7 +168,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Load cursor for dedupe check\nconst data = this.getWorkflowStaticData('global');\nconst lastSeen = Number(data.lastSeenInternalDate || 0);\n\n// Get message metadata\nconst internalDate = Number($json.internalDate || 0);\n\n// Skip if not newer than cursor\nif (internalDate <= lastSeen) {\n  return [{\n    json: {\n      status: 'SKIP_OLD',\n      id: $json.id,\n      internalDate,\n      lastSeen\n    }\n  }];\n}\n\n// Extract headers\nconst headers = $json.payload?.headers || [];\nconst getHeader = (name) => {\n  const h = headers.find(h => (h.name || '').toLowerCase() === name.toLowerCase());\n  return h?.value || 'Unknown';\n};\n\nconst from = getHeader('From');\nconst subject = getHeader('Subject');\nconst date = getHeader('Date');\n\nreturn [{\n  json: {\n    status: 'NEW',\n    id: $json.id,\n    threadId: $json.threadId,\n    from,\n    subject,\n    date,\n    internalDate,\n    link: `https://mail.google.com/mail/u/0/#inbox/${$json.id}`\n  }\n}];"
+        "jsCode": "// Read cursor from Postgres node output (first row)\nconst lastSeen = Number($('Load Cursor').first().json.last_seen_internal_date || 0);\n\n// Get message metadata\nconst internalDate = Number($json.internalDate || 0);\n\n// Skip if not newer than cursor\nif (internalDate <= lastSeen) {\n  return [{\n    json: {\n      status: 'SKIP_OLD',\n      id: $json.id,\n      internalDate,\n      lastSeen\n    }\n  }];\n}\n\n// Extract headers\nconst headers = $json.payload?.headers || [];\nconst getHeader = (name) => {\n  const h = headers.find(h => (h.name || '').toLowerCase() === name.toLowerCase());\n  return h?.value || 'Unknown';\n};\n\nconst from = getHeader('From');\nconst subject = getHeader('Subject');\nconst date = getHeader('Date');\n\nreturn [{\n  json: {\n    status: 'NEW',\n    id: $json.id,\n    threadId: $json.threadId,\n    from,\n    subject,\n    date,\n    internalDate,\n    link: `https://mail.google.com/mail/u/0/#inbox/${$json.id}`\n  }\n}];"
       },
       "id": "code-dedupe-format-1",
       "name": "Dedupe + Format",
@@ -217,13 +224,20 @@
     },
     {
       "parameters": {
-        "jsCode": "// Save cursor to workflow static data\nconst data = this.getWorkflowStaticData('global');\n\nconst currentLastSeen = Number(data.lastSeenInternalDate || 0);\nconst newInternalDate = Number($json.internalDate || 0);\n\n// Keep the maximum (newest) timestamp\nconst updatedLastSeen = Math.max(currentLastSeen, newInternalDate);\n\ndata.lastSeenInternalDate = updatedLastSeen;\n\nreturn [{\n  json: {\n    status: 'CURSOR_SAVED',\n    previousLastSeen: currentLastSeen,\n    newInternalDate,\n    updatedLastSeen\n  }\n}];"
+        "operation": "executeQuery",
+        "query": "={{ \"INSERT INTO gmail_cursor(key, last_seen_internal_date, updated_at) VALUES ('inbox', \" + $json.internalDate + \", NOW()) ON CONFLICT (key) DO UPDATE SET last_seen_internal_date = GREATEST(gmail_cursor.last_seen_internal_date, EXCLUDED.last_seen_internal_date), updated_at = NOW();\" }}"
       },
-      "id": "code-save-cursor-1",
+      "id": "postgres-save-cursor-1",
       "name": "Save Cursor",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [2050, 100]
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2050, 100],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-ai-memory",
+          "name": "ai-memory Postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -366,10 +380,6 @@
     "saveExecutionProgress": true,
     "saveManualExecutions": true
   },
-  "staticData": {
-    "global": {
-      "lastSeenInternalDate": 0
-    }
-  },
-  "tags": ["gmail", "slack", "poll", "readonly", "http"]
+  "staticData": null,
+  "tags": ["gmail", "slack", "poll", "readonly", "http", "postgres"]
 }
