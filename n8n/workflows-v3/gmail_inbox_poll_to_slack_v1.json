@@ -30,8 +30,8 @@
       "position": [450, 300],
       "credentials": {
         "postgres": {
-          "id": "postgres-ai-memory",
-          "name": "ai-memory Postgres"
+          "id": "JNn96XNDVxINxZut",
+          "name": "Postgres account"
         }
       }
     },
@@ -234,8 +234,8 @@
       "position": [2050, 100],
       "credentials": {
         "postgres": {
-          "id": "postgres-ai-memory",
-          "name": "ai-memory Postgres"
+          "id": "JNn96XNDVxINxZut",
+          "name": "Postgres account"
         }
       }
     },
