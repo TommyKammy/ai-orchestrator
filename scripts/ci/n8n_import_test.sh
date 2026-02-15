@@ -46,35 +46,51 @@ if [ ! -w "$CI_IMPORT_DIR" ]; then
   exit 1
 fi
 
+normalize_and_write() {
+  local src="$1"
+  local dst="$2"
+
+  python3 -c '
+import json, sys
+src, dst = sys.argv[1], sys.argv[2]
+with open(src, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+def ensure_active(obj):
+    if isinstance(obj, dict) and "active" not in obj:
+        obj["active"] = False
+    return obj
+
+# CLI import may receive either a single object or a list
+if isinstance(data, dict):
+    data = ensure_active(data)
+    out = [data]  # wrap object into list for import
+elif isinstance(data, list):
+    out = [ensure_active(x) for x in data]
+else:
+    raise SystemExit(f"Unsupported JSON root type: {type(data)}")
+
+with open(dst, "w", encoding="utf-8") as f:
+    json.dump(out, f, ensure_ascii=False)
+' "$src" "$dst"
+}
+
 wrap_workflow() {
   local src="$1"
   local dst="$2"
 
-  # Validate path exists and is readable
   if [ ! -f "$src" ]; then
-    echo "ERROR: workflow file not found: $src"
+    echo "ERROR: missing $src"
     exit 1
   fi
   if [ ! -r "$src" ]; then
-    echo "ERROR: workflow file not readable: $src"
-    ls -la "$(dirname "$src")" || true
+    echo "ERROR: unreadable $src"
     ls -la "$src" || true
     exit 1
   fi
 
-  # First non-whitespace char (portable, bash-only)
-  local first
-  first="$(LC_ALL=C sed -e 's/^[[:space:]]*//' -e 'q' "$src" | head -c 1 || true)"
-
-  if [ "$first" = "{" ]; then
-    printf "[" > "$dst"
-    cat "$src" >> "$dst"
-    printf "]" >> "$dst"
-    echo "      Wrapped $(basename "$src") (object -> array)"
-  else
-    cp "$src" "$dst"
-    echo "      Copied $(basename "$src") (already array or unknown)"
-  fi
+  normalize_and_write "$src" "$dst"
+  echo "      Normalized $(basename "$src") (ensured active=false; wrapped as array)"
 }
 
 for wf in "${WORKFLOW_FILES[@]}"; do
