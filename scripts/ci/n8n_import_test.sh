@@ -32,35 +32,48 @@ if [ ! -d "$WORKFLOW_DIR" ]; then
   exit 1
 fi
 
+# Debug: show workflow directory info
+echo "WORKFLOW_DIR=$WORKFLOW_DIR"
+ls -la "$WORKFLOW_DIR" || true
+
 # Create temp directory for CI import files (n8n 1.74.1 CLI expects array format)
 CI_IMPORT_DIR="$(mktemp -d)"
 echo "Creating CI import files in: $CI_IMPORT_DIR"
+
+# Ensure temp dir is writable
+if [ ! -w "$CI_IMPORT_DIR" ]; then
+  echo "ERROR: temp dir not writable: $CI_IMPORT_DIR"
+  exit 1
+fi
 
 wrap_workflow() {
   local src="$1"
   local dst="$2"
 
-  # Detect first non-whitespace character using Python
+  # Validate path exists and is readable
+  if [ ! -f "$src" ]; then
+    echo "ERROR: workflow file not found: $src"
+    exit 1
+  fi
+  if [ ! -r "$src" ]; then
+    echo "ERROR: workflow file not readable: $src"
+    ls -la "$(dirname "$src")" || true
+    ls -la "$src" || true
+    exit 1
+  fi
+
+  # First non-whitespace char (portable, bash-only)
   local first
-  first="$(python3 - <<'PY'
-import sys, pathlib, re
-p=pathlib.Path(sys.argv[1])
-s=p.read_text(encoding='utf-8')
-m=re.search(r'\S', s)
-print(s[m.start()] if m else '')
-PY
-"$src")"
+  first="$(LC_ALL=C sed -e 's/^[[:space:]]*//' -e 'q' "$src" | head -c 1 || true)"
 
   if [ "$first" = "{" ]; then
-    # Wrap single workflow object into array
     printf "[" > "$dst"
     cat "$src" >> "$dst"
     printf "]" >> "$dst"
-    echo "      Wrapped $src (single object -> array)"
+    echo "      Wrapped $(basename "$src") (object -> array)"
   else
-    # Already array or unknown: copy as-is
     cp "$src" "$dst"
-    echo "      Copied $src (array or unknown format)"
+    echo "      Copied $(basename "$src") (already array or unknown)"
   fi
 }
 
