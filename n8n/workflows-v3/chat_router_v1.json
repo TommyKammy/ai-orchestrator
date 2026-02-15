@@ -34,7 +34,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "json": "={{ {\"status\": $input.first().json.status, \"provider\": $input.first().json.provider, \"answer\": $input.first().json.answer, \"tenant_id\": $input.first().json.tenant_id, \"scope\": $input.first().json.scope, \"timestamp\": $input.first().json.timestamp} }}"
+        "jsCode": "const result = $input.first().json;\nreturn [{\n  json: {\n    status: result.status,\n    provider: result.provider,\n    answer: result.answer,\n    tenant_id: result.tenant_id,\n    scope: result.scope,\n    timestamp: result.timestamp\n  }\n}];"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,

@@ -56,6 +56,19 @@
     },
     {
       "parameters": {
+        "jsCode": "const j = $json || {};\n// Explicitly set brain_enabled to false (constant) until LLM keys are configured\n// This ensures router never needs to access env vars\nreturn [{\n  json: {\n    ...j,\n    brain_enabled: false\n  }\n}];"
+      },
+      "id": "set-flags-1",
+      "name": "Set Router Flags",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        750,
+        300
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "http://ai-n8n:5678/webhook/chat/router-v1",
         "sendHeaders": true,
@@ -69,7 +82,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{JSON.stringify({tenant_id: $json.tenant_id, scope: $json.scope, message: $json.text, k: 3})}}",
+        "jsonBody": "={{JSON.stringify({tenant_id: $json.tenant_id, scope: $json.scope, message: $json.text, k: 3, brain_enabled: $json.brain_enabled})}}",
         "options": {
           "ignoreHttpStatusErrors": true
         }
@@ -79,7 +92,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        850,
+        950,
         300
       ],
       "continueOnFail": true
@@ -148,6 +161,17 @@
       ]
     },
     "Preserve Slack Fields": {
+      "main": [
+        [
+          {
+            "node": "Set Router Flags",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Router Flags": {
       "main": [
         [
           {
