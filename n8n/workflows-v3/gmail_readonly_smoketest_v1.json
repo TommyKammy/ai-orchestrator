@@ -1,0 +1,93 @@
+{
+  "name": "gmail_readonly_smoketest_v1",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 1,
+        "options": {
+          "labelIds": ["INBOX"]
+        }
+      },
+      "id": "gmail-1",
+      "name": "Get Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [450, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-readonly-oauth",
+          "name": "Gmail Read-only OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nif (!items || items.length === 0) {\n  return [{\n    json: {\n      status: \"NO_EMAIL_FOUND\",\n      message: \"No emails found in INBOX\"\n    }\n  }];\n}\n\nconst m = items[0].json;\n\nreturn [{\n  json: {\n    id: m.id || null,\n    subject: m.subject || null,\n    from: m.from || null,\n    date: m.date || m.internalDate || null,\n    snippet: m.snippet ? m.snippet.substring(0, 100) : null,\n    status: \"READONLY_OK\"\n  }\n}];"
+      },
+      "id": "code-1",
+      "name": "Format Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {},
+      "id": "noop-1",
+      "name": "Log Result",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Email": {
+      "main": [
+        [
+          {
+            "node": "Format Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Output": {
+      "main": [
+        [
+          {
+            "node": "Log Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "tags": ["gmail", "readonly", "smoketest"]
+}
