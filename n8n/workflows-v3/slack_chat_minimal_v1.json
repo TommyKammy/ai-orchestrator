@@ -5,18 +5,8 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "slack-command",
-        "responseMode": "onReceived",
-        "options": {
-          "responseData": "{\"response_type\":\"ephemeral\",\"text\":\"Processing your request...\"}",
-          "responseHeaders": {
-            "entries": [
-              {
-                "name": "Content-Type",
-                "value": "application/json"
-              }
-            ]
-          }
-        }
+        "responseMode": "lastNode",
+        "options": {}
       },
       "id": "webhook-1",
       "name": "Slack Webhook",
@@ -30,6 +20,20 @@
     },
     {
       "parameters": {
+        "respondWith": "json",
+        "json": "{\"response_type\":\"ephemeral\",\"text\":\"Processing your request...\"}"
+      },
+      "id": "ack-1",
+      "name": "Immediate ACK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        400,
+        300
+      ]
+    },
+    {
+      "parameters": {
         "jsCode": "const j = $json || {};\nlet params = {};\n\nfunction parseFormData(input) {\n  const result = {};\n  if (typeof input === 'object' && input !== null) {\n    return input;\n  }\n  if (typeof input !== 'string') {\n    return result;\n  }\n  const pairs = input.split('&');\n  for (const pair of pairs) {\n    const [key, ...valueParts] = pair.split('=');\n    if (key) {\n      const value = valueParts.join('=');\n      try {\n        result[decodeURIComponent(key)] = decodeURIComponent(value || '');\n      } catch (e) {\n        result[key] = value || '';\n      }\n    }\n  }\n  return result;\n}\n\nif (j.user_id || j.response_url) {\n  Object.assign(params, j);\n}\nif (j.body && typeof j.body === 'object' && !Array.isArray(j.body)) {\n  Object.assign(params, j.body);\n}\nif (j.body && typeof j.body === 'string') {\n  Object.assign(params, parseFormData(j.body));\n}\nif (j.rawBody && typeof j.rawBody === 'string') {\n  Object.assign(params, parseFormData(j.rawBody));\n}\n\nconst user_id = params.user_id;\nconst user_name = params.user_name || 'unknown';\nconst channel_id = params.channel_id;\nconst text = params.text || '';\nconst response_url = params.response_url;\nconst team_id = params.team_id || 'unknown';\nconst command = params.command || '/ai';\n\nreturn [{\n  json: {\n    user_id: user_id || 'unknown',\n    user_name,\n    channel_id: channel_id || 'unknown',\n    text,\n    response_url,\n    team_id,\n    command,\n    tenant_id: 't1',\n    scope: user_id ? 'slack:user:' + user_id : 'slack:unknown'\n  }\n}];"
       },
       "id": "parse-1",
@@ -37,7 +41,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
       "position": [
-        450,
+        600,
         300
       ]
     },
@@ -50,7 +54,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
       "position": [
-        650,
+        800,
         300
       ]
     },
@@ -63,7 +67,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
       "position": [
-        750,
+        900,
         300
       ]
     },
@@ -92,7 +96,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        950,
+        1100,
         300
       ],
       "continueOnFail": true
@@ -106,7 +110,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
       "position": [
-        1050,
+        1200,
         300
       ]
     },
@@ -132,13 +136,24 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        1250,
+        1400,
         300
       ]
     }
   ],
   "connections": {
     "Slack Webhook": {
+      "main": [
+        [
+          {
+            "node": "Immediate ACK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Immediate ACK": {
       "main": [
         [
           {
