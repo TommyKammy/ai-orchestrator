@@ -172,10 +172,9 @@ for workflow in "${WORKFLOW_FILES[@]}"; do
   fi
 done
 
-echo "[4/7] Activating workflows..."
-docker exec "$CONTAINER_NAME" sh -c '
-  sqlite3 /home/node/.n8n/database.sqlite "UPDATE workflow_entity SET active = 1 WHERE name LIKE '%slack%';"
-' 2>&1
+echo "[4/7] Activating workflows via n8n CLI..."
+docker exec "$CONTAINER_NAME" n8n update:workflow --all --active=true 2>&1
+echo "Activation complete"
 
 echo "[5/7] Verifying webhook registrations..."
 WEBHOOKS=$(docker exec "$CONTAINER_NAME" sh -c '
