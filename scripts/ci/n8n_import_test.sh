@@ -180,10 +180,11 @@ docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
 echo "Activating workflows via n8n CLI (while n8n is stopped)..."
 docker run --rm \
+  --entrypoint n8n \
   -v "$N8N_DATA_VOLUME":/home/node/.n8n \
   -e N8N_ENCRYPTION_KEY=test-key-for-ci-only \
   "$N8N_IMAGE" \
-  n8n update:workflow --all --active=true 2>&1
+  update:workflow --all --active=true 2>&1
 
 echo "Activation complete (applied while n8n stopped)."
 
