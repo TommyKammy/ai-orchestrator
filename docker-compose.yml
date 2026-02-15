@@ -77,9 +77,9 @@ services:
       N8N_LOG_LEVEL: debug
       N8N_LOG_OUTPUT: console
       EXECUTIONS_DATA_SAVE_ON_ERROR: all
-      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
-      EXECUTIONS_DATA_PRUNE: "true"
-      EXECUTIONS_DATA_MAX_AGE: 168
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
+      EXECUTIONS_DATA_PRUNE: "false"
+      EXECUTIONS_DATA_MAX_AGE: 720
       
       # Timezone
       TZ: Asia/Tokyo
