@@ -88,6 +88,10 @@ services:
       # Trust proxy headers (we're behind Caddy reverse proxy)
       N8N_PROXY_HOPS: 1
 
+      # Editor URL configuration for proper authentication behind reverse proxy
+      N8N_EDITOR_BASE_URL: https://${N8N_HOST}/
+      N8N_SECURE_COOKIE: true
+
       # Slack signature verification (TEMPORARILY DISABLED - n8n 2.7.4 blocks crypto module)
       # WARNING: Re-enable after upgrading n8n or using external verification
       SLACK_SIG_VERIFY_ENABLED: "false"

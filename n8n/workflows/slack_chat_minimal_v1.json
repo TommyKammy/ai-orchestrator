@@ -1,0 +1,193 @@
+{
+  "name": "slack_chat_minimal_v1",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "slack-command",
+        "responseMode": "onReceived",
+        "options": {
+          "responseData": "{\"response_type\":\"ephemeral\",\"text\":\"Processing your request...\"}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "webhook-1",
+      "name": "Slack Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ],
+      "webhookId": "slack-command"
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $json || {};\nlet params = {};\n\nfunction parseFormData(input) {\n  const result = {};\n  if (typeof input === 'object' && input !== null) {\n    return input;\n  }\n  if (typeof input !== 'string') {\n    return result;\n  }\n  const pairs = input.split('&');\n  for (const pair of pairs) {\n    const [key, ...valueParts] = pair.split('=');\n    if (key) {\n      const value = valueParts.join('=');\n      try {\n        result[decodeURIComponent(key)] = decodeURIComponent(value || '');\n      } catch (e) {\n        result[key] = value || '';\n      }\n    }\n  }\n  return result;\n}\n\nif (j.user_id || j.response_url) {\n  Object.assign(params, j);\n}\nif (j.body && typeof j.body === 'object' && !Array.isArray(j.body)) {\n  Object.assign(params, j.body);\n}\nif (j.body && typeof j.body === 'string') {\n  Object.assign(params, parseFormData(j.body));\n}\nif (j.rawBody && typeof j.rawBody === 'string') {\n  Object.assign(params, parseFormData(j.rawBody));\n}\n\nconst user_id = params.user_id;\nconst user_name = params.user_name || 'unknown';\nconst channel_id = params.channel_id;\nconst text = params.text || '';\nconst response_url = params.response_url;\nconst team_id = params.team_id || 'unknown';\nconst command = params.command || '/ai';\n\nreturn [{\n  json: {\n    user_id: user_id || 'unknown',\n    user_name,\n    channel_id: channel_id || 'unknown',\n    text,\n    response_url,\n    team_id,\n    command,\n    tenant_id: 't1',\n    scope: user_id ? 'slack:user:' + user_id : 'slack:unknown'\n  }\n}];"
+      },
+      "id": "parse-1",
+      "name": "Parse Slack Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $json || {};\nreturn [{\n  json: {\n    user_id: j.user_id ?? null,\n    channel_id: j.channel_id ?? null,\n    team_id: j.team_id ?? null,\n    command: j.command ?? null,\n    text: j.text ?? null,\n    response_url: j.response_url ?? null,\n    tenant_id: j.tenant_id ?? 't1',\n    scope: j.scope ?? 'slack:unknown'\n  }\n}];"
+      },
+      "id": "preserve-1",
+      "name": "Preserve Slack Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ai-n8n:5678/webhook/chat/router-v1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{JSON.stringify({tenant_id: $json.tenant_id, scope: $json.scope, message: $json.text, k: 3})}}",
+        "options": {
+          "ignoreHttpStatusErrors": true
+        }
+      },
+      "id": "router-1",
+      "name": "Call Brain Router",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        850,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $json || {};\n\n// Router output is in j.body or directly in j\nconst routerResponse = j.body ?? j;\nconst answer = routerResponse?.answer ?? routerResponse?.body?.answer ?? null;\nconst provider = routerResponse?.provider ?? 'unknown';\nconst status = routerResponse?.status ?? 'unknown';\n\n// NO-BRAIN fallback\nconst safeAnswer = answer && String(answer).trim().length\n  ? String(answer).trim()\n  : '\u26a0\ufe0f AI brain is not configured yet.\\n\\nPlease configure KIMI_API_KEY or OPENAI_API_KEY in .env and restart services.\\n\\n(Infra is working; only the LLM provider is missing.)';\n\nif (!j.response_url || String(j.response_url).trim().length < 10) {\n  throw new Error('Missing response_url after router execution');\n}\n\nreturn [{\n  json: {\n    response_url: j.response_url,\n    answer: safeAnswer,\n    provider: provider,\n    status: status,\n    user_id: j.user_id,\n    channel_id: j.channel_id,\n    team_id: j.team_id,\n    command: j.command,\n    text: j.text\n  }\n}];"
+      },
+      "id": "normalize-1",
+      "name": "Normalize Answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1050,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.response_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{JSON.stringify({response_type: 'ephemeral', text: $json.answer})}}"
+      },
+      "id": "respond-1",
+      "name": "Respond to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1250,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Slack Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Slack Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Slack Request": {
+      "main": [
+        [
+          {
+            "node": "Preserve Slack Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preserve Slack Fields": {
+      "main": [
+        [
+          {
+            "node": "Call Brain Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Brain Router": {
+      "main": [
+        [
+          {
+            "node": "Normalize Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Answer": {
+      "main": [
+        [
+          {
+            "node": "Respond to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [],
+  "pinData": {}
+}

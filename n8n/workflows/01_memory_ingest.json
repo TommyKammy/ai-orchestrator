@@ -97,7 +97,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO memory_vectors (tenant_id, scope, content, embedding, created_at)\nVALUES ('{{ $input.first().json.tenant_id }}', '{{ $input.first().json.scope }}', '{{ $input.first().json.text.replace(/'/g, "''") }}', '{{ $input.first().json.embedding }}'::vector, NOW())\nRETURNING id;",
+        "query": "INSERT INTO memory_vectors (tenant_id, scope, content, embedding, created_at)\nVALUES ('{{ $input.first().json.tenant_id }}', '{{ $input.first().json.scope }}', '{{ $input.first().json.text.replace(/'/g, "\\'\\'") }}', '{{ $input.first().json.embedding }}'::vector, NOW())\nRETURNING id;",
         "additionalFields": {}
       },
       "type": "n8n-nodes-base.postgres",

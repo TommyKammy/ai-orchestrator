@@ -234,7 +234,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "={{ \"INSERT INTO gmail_cursor(key, last_seen_internal_date, updated_at) VALUES ('inbox', \" + $json.internalDate + \", NOW()) ON CONFLICT (key) DO UPDATE SET last_seen_internal_date = GREATEST(gmail_cursor.last_seen_internal_date, EXCLUDED.last_seen_internal_date), updated_at = NOW();\" }}"
+        "query": "={{ 'INSERT INTO gmail_cursor(key, last_seen_internal_date, updated_at) VALUES (' + \"'inbox'\" + ', ' + ($json.internalDate !== undefined ? $json.internalDate : 0) + ', NOW()) ON CONFLICT (key) DO UPDATE SET last_seen_internal_date = GREATEST(gmail_cursor.last_seen_internal_date, EXCLUDED.last_seen_internal_date), updated_at = NOW();' }}"
       },
       "id": "postgres-save-cursor-1",
       "name": "Save Cursor",

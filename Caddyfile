@@ -4,19 +4,32 @@ n8n-s-app01.tmcast.net {
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         X-Content-Type-Options "nosniff"
-        X-Frame-Options "DENY"
         X-XSS-Protection "1; mode=block"
         Referrer-Policy "strict-origin-when-cross-origin"
     }
 
+    # Legacy Slack slash command paths - rewrite to n8n webhook
+    @slack_legacy path /slack/command /slack-command
+    handle @slack_legacy {
+        rewrite * /webhook/slack-command
+        reverse_proxy n8n:5678 {
+            header_up -X-Internal-Auth
+            header_up X-Internal-Auth {env.SLACK_INTERNAL_AUTH}
+        }
+    }
+
     # Handle Slack slash commands - bypass API key check
-    # Security compensated by internal auth header (Caddy adds this, external requests cannot)
     handle /webhook/slack-command {
         reverse_proxy n8n:5678 {
-            # Strip any client-provided X-Internal-Auth header to prevent spoofing
             header_up -X-Internal-Auth
-            # Inject our trusted internal auth header
             header_up X-Internal-Auth {env.SLACK_INTERNAL_AUTH}
+        }
+    }
+
+    # Handle internal AI router calls - inject API key
+    handle /webhook/chat/router-v1 {
+        reverse_proxy n8n:5678 {
+            header_up X-API-Key 841502453b8ac8bb9c691ff57e7d1ecf070c4c266eb63be554235a9be6659b37
         }
     }
 
@@ -30,5 +43,11 @@ n8n-s-app01.tmcast.net {
         body "Unauthorized: Invalid or missing API key"
     }
 
-    reverse_proxy n8n:5678
+    # Main reverse proxy with proper headers for n8n UI auth
+    reverse_proxy n8n:5678 {
+        header_up Host {host}
+        header_up X-Real-IP {remote}
+        header_up X-Forwarded-For {remote}
+        header_up X-Forwarded-Proto {scheme}
+    }
 }
