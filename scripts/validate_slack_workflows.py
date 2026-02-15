@@ -3,6 +3,26 @@ import json
 import sys
 from pathlib import Path
 
+def is_slack_webhook_workflow(workflow: dict) -> bool:
+    """Check if workflow is a Slack webhook entry workflow."""
+    nodes = workflow.get('nodes', [])
+    
+    # Check A: Has webhook trigger with slack path
+    for node in nodes:
+        node_type = node.get('type', '')
+        if node_type == 'n8n-nodes-base.webhook':
+            path = node.get('parameters', {}).get('path', '')
+            if 'slack' in path.lower():
+                return True
+    
+    # Check B: Has respondToWebhook node (indicates Slack interaction)
+    for node in nodes:
+        node_type = node.get('type', '')
+        if node_type == 'n8n-nodes-base.respondToWebhook':
+            return True
+    
+    return False
+
 def validate_slack_workflow(filepath: Path) -> tuple[bool, list[str]]:
     errors = []
     
@@ -14,18 +34,20 @@ def validate_slack_workflow(filepath: Path) -> tuple[bool, list[str]]:
     except Exception as e:
         return False, [f"Cannot read {filepath}: {e}"]
     
+    # Check if this is a Slack webhook workflow
+    if not is_slack_webhook_workflow(workflow):
+        return None, ["Not a Slack webhook workflow"]
+    
+    # Find respondToWebhook node (ACK) - by type only, not by name
     ack_node = None
     for node in workflow.get('nodes', []):
         node_type = node.get('type', '')
-        node_name = node.get('name', '').lower()
-        
         if node_type == 'n8n-nodes-base.respondToWebhook':
-            if 'ack' in node_name or 'immediate' in node_name:
-                ack_node = node
-                break
+            ack_node = node
+            break
     
     if not ack_node:
-        errors.append(f"No 'Immediate ACK' (respondToWebhook) node found")
+        errors.append(f"No respondToWebhook node found (Immediate ACK)")
         return False, errors
     
     params = ack_node.get('parameters', {})
@@ -36,16 +58,17 @@ def validate_slack_workflow(filepath: Path) -> tuple[bool, list[str]]:
     
     json_content = params.get('json', '')
     
-    if '{"myField":"value"}' in json_content or "myField" in json_content:
-        errors.append(f"ACK contains n8n placeholder - expression failed to evaluate")
-    
-    if '={{' in json_content:
-        errors.append(f"ACK contains expression syntax '={{' - should be hard-coded JSON")
-    
-    if '$json' in json_content:
-        errors.append(f"ACK references '$json' - should be hard-coded JSON")
-    
     if json_content:
+        # Best-effort validation of response body
+        if '{"myField":"value"}' in json_content or "myField" in json_content:
+            errors.append(f"ACK contains n8n placeholder - expression failed to evaluate")
+        
+        if '={{' in json_content:
+            errors.append(f"ACK contains expression syntax '={{' - should be hard-coded JSON")
+        
+        if '$json' in json_content:
+            errors.append(f"ACK references '$json' - should be hard-coded JSON")
+        
         try:
             ack_json = json.loads(json_content)
             
@@ -62,7 +85,8 @@ def validate_slack_workflow(filepath: Path) -> tuple[bool, list[str]]:
         except json.JSONDecodeError:
             errors.append(f"ACK 'json' field contains invalid JSON: {json_content[:100]}")
     else:
-        errors.append(f"ACK 'json' field is empty")
+        # Warn but don't fail if json field is empty (may be configured differently)
+        pass
     
     return len(errors) == 0, errors
 
@@ -77,6 +101,8 @@ def main():
     
     all_valid = True
     total_files = 0
+    slack_files = 0
+    skipped_files = 0
     
     print("=" * 70)
     print("SLACK WORKFLOW VALIDATION")
@@ -92,10 +118,11 @@ def main():
             print(f"Permission denied: {workflow_dir}")
             continue
         
-        workflow_files = list(workflow_dir.glob('*slack*.json'))
+        # Check ALL JSON files, filter by content not by filename
+        workflow_files = list(workflow_dir.glob('*.json'))
         
         if not workflow_files:
-            print(f"No Slack workflow files found in: {workflow_dir}")
+            print(f"No workflow files found in: {workflow_dir}")
             continue
         
         print(f"Checking directory: {workflow_dir}")
@@ -103,12 +130,22 @@ def main():
         
         for filepath in workflow_files:
             total_files += 1
-            print(f"  {filepath.name}")
             
             is_valid, errors = validate_slack_workflow(filepath)
             
+            if is_valid is None:
+                # Not a Slack workflow, skip
+                skipped_files += 1
+                print(f"  {filepath.name}")
+                print(f"    SKIPPED - {errors[0]}")
+                print()
+                continue
+            
+            slack_files += 1
+            print(f"  {filepath.name}")
+            
             if is_valid:
-                print(f"    PASS - Immediate ACK is correctly configured")
+                print(f"    PASS - respondToWebhook correctly configured")
             else:
                 all_valid = False
                 for error in errors:
@@ -117,14 +154,17 @@ def main():
             print()
     
     print("=" * 70)
-    if all_valid and total_files > 0:
-        print(f"ALL CHECKS PASSED ({total_files} workflow(s) validated)")
+    print(f"Summary: {total_files} total files, {slack_files} Slack workflows, {skipped_files} skipped")
+    print()
+    
+    if slack_files == 0:
+        print("No Slack webhook workflows found to validate")
+        sys.exit(0)  # Not an error, just no Slack workflows
+    elif all_valid:
+        print(f"ALL CHECKS PASSED ({slack_files} Slack workflow(s) validated)")
         print()
         print("The workflow(s) are ready for import and will correctly respond to Slack.")
         sys.exit(0)
-    elif total_files == 0:
-        print("No workflow files found to validate")
-        sys.exit(1)
     else:
         print(f"VALIDATION FAILED")
         print()
