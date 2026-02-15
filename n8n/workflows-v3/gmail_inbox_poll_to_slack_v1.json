@@ -1,0 +1,215 @@
+{
+  "name": "gmail_inbox_poll_to_slack_v1",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "trigger-cron-1",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load cursor from workflow static data\nconst data = this.getWorkflowStaticData('global');\nconst lastSeen = data.lastSeenInternalDate || 0;\n\nreturn [{\n  json: {\n    lastSeenInternalDate: lastSeen,\n    query: lastSeen > 0 ? `in:inbox newer:${Math.floor(lastSeen / 1000)}` : 'in:inbox',\n    note: lastSeen > 0 ? 'Using cursor to get only new emails' : 'First run - getting recent emails'\n  }\n}];"
+      },
+      "id": "code-load-cursor-1",
+      "name": "Load Cursor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 10,
+        "options": {
+          "labelIds": ["INBOX"],
+          "q": "={{ $json.query }}"
+        }
+      },
+      "id": "gmail-get-1",
+      "name": "Get Gmail Messages",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [650, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-readonly-oauth",
+          "name": "Gmail Read-only OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-has-email-1",
+      "name": "Has New Emails?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format emails for Slack notification\nconst emails = $input.all();\nif (!emails || emails.length === 0) {\n  return [{ json: { hasEmails: false } }];\n}\n\n// Sort by internalDate descending (newest first)\nconst sorted = emails.sort((a, b) => {\n  const dateA = parseInt(a.json.internalDate || 0);\n  const dateB = parseInt(b.json.internalDate || 0);\n  return dateB - dateA;\n});\n\n// Get the newest internalDate for cursor update\nconst newestInternalDate = parseInt(sorted[0].json.internalDate || 0);\n\n// Format message\nlet messageText = `📩 *New Email${sorted.length > 1 ? 's' : ''} Detected*\\n\\n`;\n\nsorted.forEach((email, idx) => {\n  const m = email.json;\n  const from = m.from || 'Unknown';\n  const subject = m.subject || '(no subject)';\n  const date = m.date ? new Date(m.date).toLocaleString() : 'Unknown date';\n  const snippet = m.snippet ? m.snippet.substring(0, 150).replace(/\\s+/g, ' ') : '';\n  const messageId = m.id || '';\n  const gmailLink = messageId ? `https://mail.google.com/mail/u/0/#inbox/${messageId}` : '';\n  \n  messageText += `*${idx + 1}. From:* ${from}\\n`;\n  messageText += `   *Subject:* ${subject}\\n`;\n  messageText += `   *Date:* ${date}\\n`;\n  if (snippet) {\n    messageText += `   *Snippet:* ${snippet}...\\n`;\n  }\n  if (gmailLink) {\n    messageText += `   *Link:* ${gmailLink}\\n`;\n  }\n  messageText += '\\n';\n});\n\nmessageText += `_${sorted.length} email${sorted.length > 1 ? 's' : ''} processed_`;\n\nreturn [{\n  json: {\n    hasEmails: true,\n    emailCount: sorted.length,\n    newestInternalDate: newestInternalDate,\n    slackMessage: messageText,\n    emails: sorted.map(e => ({\n      id: e.json.id,\n      from: e.json.from,\n      subject: e.json.subject,\n      internalDate: e.json.internalDate\n    }))\n  }\n}];"
+      },
+      "id": "code-format-1",
+      "name": "Format Slack Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "channel": "#ai-orchestrator-test",
+        "text": "={{ $json.slackMessage }}",
+        "options": {}
+      },
+      "id": "slack-post-1",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [1250, 200],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-bot-token",
+          "name": "Slack Bot Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Save cursor to workflow static data\nconst data = this.getWorkflowStaticData('global');\nconst newestInternalDate = $input.first().json.newestInternalDate;\n\nif (newestInternalDate && newestInternalDate > 0) {\n  data.lastSeenInternalDate = newestInternalDate;\n  return [{\n    json: {\n      cursorSaved: true,\n      lastSeenInternalDate: newestInternalDate,\n      note: 'Cursor updated - will only fetch newer emails next run'\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    cursorSaved: false,\n    note: 'No cursor to save'\n  }\n}];"
+      },
+      "id": "code-save-cursor-1",
+      "name": "Save Cursor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1450, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// No new emails - just return status\nreturn [{\n  json: {\n    status: 'NO_NEW_EMAILS',\n    note: 'No new emails since last check',\n    lastChecked: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "code-no-emails-1",
+      "name": "No New Emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1050, 400]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load Cursor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Cursor": {
+      "main": [
+        [
+          {
+            "node": "Get Gmail Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Gmail Messages": {
+      "main": [
+        [
+          {
+            "node": "Has New Emails?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has New Emails?": {
+      "main": [
+        [
+          {
+            "node": "Format Slack Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No New Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Slack Message": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Slack": {
+      "main": [
+        [
+          {
+            "node": "Save Cursor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
+  },
+  "staticData": {
+    "global": {
+      "lastSeenInternalDate": 0
+    }
+  },
+  "tags": ["gmail", "slack", "poll", "readonly"]
+}
