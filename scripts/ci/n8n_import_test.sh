@@ -8,6 +8,7 @@ echo ""
 
 N8N_IMAGE="n8nio/n8n:1.74.1"
 CONTAINER_NAME="n8n-ci-test"
+N8N_DATA_VOLUME="n8n-ci-data"
 WORKFLOW_DIR="${PWD}/n8n/workflows-v3"
 TIMEOUT=240
 
@@ -19,8 +20,9 @@ WORKFLOW_FILES=(
 CI_IMPORT_DIR=""
 
 cleanup() {
-  echo "[cleanup] Removing container..."
+  echo "[cleanup] Removing container and volume..."
   docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+  docker volume rm -f "$N8N_DATA_VOLUME" 2>/dev/null || true
   if [ -n "$CI_IMPORT_DIR" ] && [ -d "$CI_IMPORT_DIR" ]; then
     rm -rf "$CI_IMPORT_DIR" 2>/dev/null || true
   fi
@@ -105,7 +107,7 @@ chmod -R a+rX "$CI_IMPORT_DIR"
 # Debug: show permissions
 ls -la "$CI_IMPORT_DIR"
 
-echo "[1/7] Starting n8n container with CI settings..."
+echo "[1/8] Starting n8n container with CI settings..."
 docker run -d --name "$CONTAINER_NAME" \
   -p 5678:5678 \
   -e N8N_BASIC_AUTH_ACTIVE=false \
@@ -114,6 +116,7 @@ docker run -d --name "$CONTAINER_NAME" \
   -e N8N_USER_MANAGEMENT_DISABLED=true \
   -e N8N_ENCRYPTION_KEY=test-key-for-ci-only \
   -e SLACK_SIG_VERIFY_ENABLED=false \
+  -v "$N8N_DATA_VOLUME":/home/node/.n8n \
   -v "$CI_IMPORT_DIR:/import:ro" \
   "$N8N_IMAGE" 2>&1
 
@@ -122,7 +125,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "[2/7] Waiting for n8n to be ready (timeout=${TIMEOUT}s)..."
+echo "[2/8] Waiting for n8n to be ready (timeout=${TIMEOUT}s)..."
 READY_TIMEOUT_SECONDS=${TIMEOUT:-240}
 START_TS=$(date +%s)
 
@@ -157,7 +160,7 @@ while true; do
   sleep 2
 done
 
-echo "[3/7] Importing workflows..."
+echo "[3/8] Importing workflows..."
 
 for workflow in "${WORKFLOW_FILES[@]}"; do
   if [ -f "$WORKFLOW_DIR/$workflow" ]; then
@@ -172,35 +175,73 @@ for workflow in "${WORKFLOW_FILES[@]}"; do
   fi
 done
 
-echo "[4/7] Activating workflows via n8n CLI..."
-docker exec "$CONTAINER_NAME" n8n update:workflow --all --active=true 2>&1
-echo "Activation complete"
+echo "[4/8] Stopping n8n to apply activation..."
+docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
-echo "[5/7] Verifying webhook registrations..."
-WEBHOOKS=$(docker exec "$CONTAINER_NAME" sh -c '
-  sqlite3 /home/node/.n8n/database.sqlite "SELECT webhookPath FROM webhook_entity;" 2>/dev/null || echo ""
-' 2>&1)
+echo "Activating workflows via n8n CLI (while n8n is stopped)..."
+docker run --rm \
+  -v "$N8N_DATA_VOLUME":/home/node/.n8n \
+  -e N8N_ENCRYPTION_KEY=test-key-for-ci-only \
+  "$N8N_IMAGE" \
+  n8n update:workflow --all --active=true 2>&1
 
-echo "      Registered webhooks:"
-echo "$WEBHOOKS" | while read -r line; do
-  if [ -n "$line" ]; then
-    echo "        - $line"
+echo "Activation complete (applied while n8n stopped)."
+
+echo "[5/8] Starting n8n container again..."
+docker run -d --name "$CONTAINER_NAME" \
+  -p 5678:5678 \
+  -e N8N_BASIC_AUTH_ACTIVE=false \
+  -e N8N_DIAGNOSTICS_ENABLED=false \
+  -e N8N_PERSONALIZATION_ENABLED=false \
+  -e N8N_USER_MANAGEMENT_DISABLED=true \
+  -e N8N_ENCRYPTION_KEY=test-key-for-ci-only \
+  -e SLACK_SIG_VERIFY_ENABLED=false \
+  -v "$N8N_DATA_VOLUME":/home/node/.n8n \
+  "$N8N_IMAGE" 2>&1
+
+echo "[6/8] Waiting for n8n to be ready after restart..."
+READY_TIMEOUT_SECONDS=${TIMEOUT:-240}
+START_TS=$(date +%s)
+
+while true; do
+  if docker exec "$CONTAINER_NAME" wget -qO- http://localhost:5678/healthz 2>/dev/null | grep -q "ok"; then
+    echo "      n8n ready via /healthz"
+    break
   fi
+  if curl -fsS "http://localhost:5678/rest/health" >/dev/null 2>&1; then
+    echo "      n8n ready via /rest/health"
+    break
+  fi
+  if docker logs "$CONTAINER_NAME" 2>&1 | tail -n 200 | grep -q "Editor is now accessible"; then
+    echo "      n8n ready via log signal"
+    break
+  fi
+
+  NOW=$(date +%s)
+  ELAPSED=$((NOW - START_TS))
+  if [ "$ELAPSED" -ge "$READY_TIMEOUT_SECONDS" ]; then
+    echo "ERROR: n8n failed to start within ${READY_TIMEOUT_SECONDS}s"
+    docker logs "$CONTAINER_NAME" --tail 200
+    exit 1
+  fi
+
+  sleep 2
 done
+
+echo "[7/8] Verifying webhook registrations..."
+WEBHOOKS=$(curl -fsS "http://localhost:5678/rest/active-workflows" 2>/dev/null || echo "")
 
 if echo "$WEBHOOKS" | grep -q "slack-command"; then
   echo ""
   echo "✓ Webhook 'slack-command' registered successfully"
 else
   echo ""
-  echo "ERROR: Webhook 'slack-command' not found in registrations"
-  echo ""
-  echo "Registered webhooks:"
-  echo "$WEBHOOKS"
+  echo "ERROR: Webhook 'slack-command' not found"
+  echo "Response: $WEBHOOKS"
   exit 1
 fi
 
-echo "[6/7] Testing webhook execution..."
+echo "[8/8] Testing webhook execution..."
 echo "      POST to /webhook/slack-command..."
 
 RESPONSE=$(curl -s -i -X POST "http://localhost:5678/webhook/slack-command" \
@@ -237,7 +278,7 @@ else
   exit 1
 fi
 
-echo "[7/7] All tests complete!"
+echo "[8/8] All tests complete!"
 echo ""
 echo "=========================================="
 echo "✓ ALL CHECKS PASSED"
@@ -246,6 +287,8 @@ echo ""
 echo "Summary:"
 echo "  - Container started successfully"
 echo "  - Workflows imported"
+echo "  - Activation applied (n8n stopped during activation)"
+echo "  - Container restarted with active workflows"
 echo "  - Webhook 'slack-command' registered"
 echo "  - Webhook execution returned immediate ACK"
 echo ""
