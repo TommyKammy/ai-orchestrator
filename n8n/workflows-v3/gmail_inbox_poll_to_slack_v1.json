@@ -60,7 +60,13 @@
             }
           ]
         },
-        "options": {}
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
       },
       "id": "http-gmail-list-1",
       "name": "Gmail List (INBOX)",
@@ -76,6 +82,37 @@
           "name": "Google account"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.messages !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-list-ok-1",
+      "name": "List OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        950,
+        250
+      ]
     },
     {
       "parameters": {
@@ -124,6 +161,37 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.payload !== undefined || ($json.body && $json.body.payload !== undefined) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-metadata-ok-1",
+      "name": "Metadata OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        200
+      ]
+    },
+    {
+      "parameters": {
         "method": "GET",
         "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + $json.id }}",
         "authentication": "oAuth2",
@@ -149,7 +217,13 @@
             }
           ]
         },
-        "options": {}
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
       },
       "id": "http-gmail-get-1",
       "name": "Gmail Get Metadata",
@@ -168,7 +242,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const data = this.getInputData()[0].json;\n\n// Handle both possible response formats safely\nconst headers =\n  data.payload?.headers ||\n  data.body?.payload?.headers ||\n  [];\n\nfunction getHeader(name) {\n  const h = headers.find(x =>\n    (x.name || '').toLowerCase() === name.toLowerCase()\n  );\n  return h ? h.value : \"Unknown\";\n}\n\nconst from = getHeader(\"From\");\nconst subject = getHeader(\"Subject\");\nconst date = getHeader(\"Date\");\n\nconst internalDate =\n  Number(data.internalDate) ||\n  Number(data.body?.internalDate) ||\n  0;\n\n// Read cursor from Postgres Load Cursor node\nconst lastSeen = Number($('Load Cursor').first().json.last_seen_internal_date || 0);\n\nif (internalDate <= lastSeen) {\n  return [{\n    json: {\n      status: \"SKIP_OLD\",\n      id: data.id || data.body?.id\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    status: \"NEW\",\n    id: data.id || data.body?.id,\n    from,\n    subject,\n    date,\n    internalDate,\n    link: `https://mail.google.com/mail/u/0/#inbox/${data.id || data.body?.id}`\n  }\n}];"
+        "jsCode": "const d = $json;\n\n// Support both response shapes (direct or wrapped in body)\nconst msg = d.payload ? d : (d.body && d.body.payload ? d.body : d);\n\n// Get headers from correct location\nconst headers = msg.payload?.headers || [];\nconst get = (name) =>\n  headers.find(h => (h.name || '').toLowerCase() === name.toLowerCase())?.value;\n\nconst from = get('From') || 'Unknown';\nconst subject = get('Subject') || 'Unknown';\nconst date = get('Date') || 'Unknown';\n\nconst internalDate = Number(msg.internalDate || 0);\nconst id = msg.id || 'unknown';\n\n// Read cursor from Load Cursor node (via cross-node reference)\nlet lastSeen = 0;\ntry {\n  const cursorData = $('Load Cursor').first().json;\n  lastSeen = Number(cursorData.last_seen_internal_date || 0);\n} catch(e) {\n  lastSeen = 0;\n}\n\n// Dedupe check\nif (internalDate && internalDate <= lastSeen) {\n  return [{ json: { status: \"SKIP_OLD\", id } }];\n}\n\nreturn [{\n  json: {\n    status: \"NEW\",\n    id,\n    threadId: msg.threadId,\n    from,\n    subject,\n    date,\n    internalDate,\n    link: `https://mail.google.com/mail/u/0/#inbox/${id}`\n  }\n}];"
       },
       "id": "code-dedupe-format-1",
       "name": "Dedupe + Format",
@@ -305,7 +379,25 @@
       "main": [
         [
           {
+            "node": "List OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List OK?": {
+      "main": [
+        [
+          {
             "node": "Has Messages?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Messages",
             "type": "main",
             "index": 0
           }
@@ -345,7 +437,25 @@
       "main": [
         [
           {
+            "node": "Metadata OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metadata OK?": {
+      "main": [
+        [
+          {
             "node": "Dedupe + Format",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Old",
             "type": "main",
             "index": 0
           }
