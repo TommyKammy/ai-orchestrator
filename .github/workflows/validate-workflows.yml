@@ -16,7 +16,7 @@ jobs:
           python-version: "3.11"
 
       - name: Validate Slack workflows
-        run: python3 scripts/validate_slack_workflows.py
+        run: python3 scripts/validate_slack_workflows.py n8n/workflows-v3
 
   import-test:
     runs-on: ubuntu-latest
