@@ -170,7 +170,7 @@
           "conditions": [
             {
               "id": "cond-1",
-              "leftValue": "={{ $json.payload !== undefined || ($json.body && $json.body.payload !== undefined) }}",
+              "leftValue": "={{ $json.payload !== undefined && $json.payload.headers !== undefined }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -186,7 +186,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        1450,
+        1650,
         200
       ]
     },
@@ -203,10 +203,11 @@
               "neverError": true
             }
           }
-        }
+        },
+        "responseFormat": "text"
       },
       "id": "http-gmail-get-1",
-      "name": "Gmail Get Metadata",
+      "name": "Gmail Get Metadata (RAW)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -222,6 +223,19 @@
     },
     {
       "parameters": {
+        "jsCode": "const raw = $json;\n\n// HTTP Request V3 raw response often comes as string in $json or $json.body\nlet text = '';\nif (typeof raw === 'string') {\n  text = raw;\n} else if (typeof raw?.body === 'string') {\n  text = raw.body;\n} else if (typeof raw?.data === 'string') {\n  text = raw.data;\n}\n\n// If still empty, check if raw is already an object (sometimes parsed)\nif (!text && typeof raw === 'object' && raw !== null) {\n  // Already parsed JSON object\n  if (raw.payload || raw.id) {\n    return [{ json: raw }];\n  }\n  // Check body\n  if (raw.body && (raw.body.payload || raw.body.id)) {\n    return [{ json: raw.body }];\n  }\n}\n\n// If text is empty, return diagnostic\nif (!text || !text.trim()) {\n  return [{\n    json: {\n      status: \"METADATA_EMPTY\",\n      rawType: typeof raw,\n      rawKeys: Object.keys(raw || {}),\n      note: \"Gmail API returned empty response\"\n    }\n  }];\n}\n\n// Parse the JSON text\ntry {\n  const parsed = JSON.parse(text);\n  return [{ json: parsed }];\n} catch (e) {\n  return [{\n    json: {\n      status: \"METADATA_PARSE_ERROR\",\n      error: String(e),\n      sample: text.slice(0, 200),\n      rawType: typeof raw\n    }\n  }];\n}"
+      },
+      "id": "code-parse-metadata-1",
+      "name": "Parse Gmail Metadata JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        200
+      ]
+    },
+    {
+      "parameters": {
         "jsCode": "const d = $json;\n\n// Support both response shapes (direct or wrapped in body)\nconst msg = d.payload ? d : (d.body && d.body.payload ? d.body : d);\n\n// Get headers from correct location\nconst headers = msg.payload?.headers || [];\nconst get = (name) =>\n  headers.find(h => (h.name || '').toLowerCase() === name.toLowerCase())?.value;\n\nconst from = get('From') || 'Unknown';\nconst subject = get('Subject') || 'Unknown';\nconst date = get('Date') || 'Unknown';\n\nconst internalDate = Number(msg.internalDate || 0);\nconst id = msg.id || 'unknown';\n\n// Read cursor from Load Cursor node (via cross-node reference)\nlet lastSeen = 0;\ntry {\n  const cursorData = $('Load Cursor').first().json;\n  lastSeen = Number(cursorData.last_seen_internal_date || 0);\n} catch(e) {\n  lastSeen = 0;\n}\n\n// Dedupe check\nif (internalDate && internalDate <= lastSeen) {\n  return [{ json: { status: \"SKIP_OLD\", id } }];\n}\n\nreturn [{\n  json: {\n    status: \"NEW\",\n    id,\n    threadId: msg.threadId,\n    from,\n    subject,\n    date,\n    internalDate,\n    link: `https://mail.google.com/mail/u/0/#inbox/${id}`\n  }\n}];"
       },
       "id": "code-dedupe-format-1",
@@ -229,7 +243,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1450,
+        1850,
         200
       ]
     },
@@ -260,7 +274,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        1650,
+        2050,
         200
       ]
     },
@@ -275,7 +289,7 @@
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2.2,
       "position": [
-        1850,
+        2250,
         100
       ],
       "credentials": {
@@ -295,7 +309,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        2050,
+        2450,
         100
       ],
       "credentials": {
@@ -314,7 +328,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1850,
+        2250,
         300
       ]
     },
@@ -406,14 +420,25 @@
       "main": [
         [
           {
-            "node": "Gmail Get Metadata",
+            "node": "Gmail Get Metadata (RAW)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Gmail Get Metadata": {
+    "Gmail Get Metadata (RAW)": {
+      "main": [
+        [
+          {
+            "node": "Parse Gmail Metadata JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gmail Metadata JSON": {
       "main": [
         [
           {
