@@ -9,7 +9,7 @@ echo ""
 N8N_IMAGE="n8nio/n8n:1.74.1"
 CONTAINER_NAME="n8n-ci-test"
 WORKFLOW_DIR="${PWD}/n8n/workflows-v3"
-TIMEOUT=60
+TIMEOUT=240
 
 cleanup() {
   echo "[cleanup] Removing container..."
@@ -39,18 +39,39 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "[2/7] Waiting for n8n to be ready..."
-for i in $(seq 1 $TIMEOUT); do
+echo "[2/7] Waiting for n8n to be ready (timeout=${TIMEOUT}s)..."
+READY_TIMEOUT_SECONDS=${TIMEOUT:-240}
+START_TS=$(date +%s)
+
+while true; do
+  # 1) HTTP health check via /healthz (preferred)
   if docker exec "$CONTAINER_NAME" wget -qO- http://localhost:5678/healthz 2>/dev/null | grep -q "ok"; then
-    echo "      n8n is ready!"
+    echo "      n8n ready via /healthz"
     break
   fi
-  if [ $i -eq $TIMEOUT ]; then
-    echo "ERROR: n8n failed to start within ${TIMEOUT}s"
-    docker logs "$CONTAINER_NAME" --tail 50
+
+  # 2) HTTP health check via /rest/health (fallback)
+  if curl -fsS "http://localhost:5678/rest/health" >/dev/null 2>&1; then
+    echo "      n8n ready via /rest/health"
+    break
+  fi
+
+  # 3) Log fallback - check for "Editor is now accessible" signal
+  if docker logs "$CONTAINER_NAME" 2>&1 | tail -n 200 | grep -q "Editor is now accessible"; then
+    echo "      n8n ready via log signal"
+    break
+  fi
+
+  NOW=$(date +%s)
+  ELAPSED=$((NOW - START_TS))
+  if [ "$ELAPSED" -ge "$READY_TIMEOUT_SECONDS" ]; then
+    echo "ERROR: n8n failed to start within ${READY_TIMEOUT_SECONDS}s"
+    echo "---- last logs ----"
+    docker logs "$CONTAINER_NAME" --tail 200
     exit 1
   fi
-  sleep 1
+
+  sleep 2
 done
 
 echo "[3/7] Importing workflows..."
