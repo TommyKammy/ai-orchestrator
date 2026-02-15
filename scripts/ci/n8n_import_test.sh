@@ -11,9 +11,19 @@ CONTAINER_NAME="n8n-ci-test"
 WORKFLOW_DIR="${PWD}/n8n/workflows-v3"
 TIMEOUT=240
 
+WORKFLOW_FILES=(
+  "slack_chat_minimal_v1.json"
+  "chat_router_v1.json"
+)
+
+CI_IMPORT_DIR=""
+
 cleanup() {
   echo "[cleanup] Removing container..."
   docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+  if [ -n "$CI_IMPORT_DIR" ] && [ -d "$CI_IMPORT_DIR" ]; then
+    rm -rf "$CI_IMPORT_DIR" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 
@@ -21,6 +31,44 @@ if [ ! -d "$WORKFLOW_DIR" ]; then
   echo "ERROR: Workflow directory not found: $WORKFLOW_DIR"
   exit 1
 fi
+
+# Create temp directory for CI import files (n8n 1.74.1 CLI expects array format)
+CI_IMPORT_DIR="$(mktemp -d)"
+echo "Creating CI import files in: $CI_IMPORT_DIR"
+
+wrap_workflow() {
+  local src="$1"
+  local dst="$2"
+
+  # Detect first non-whitespace character using Python
+  local first
+  first="$(python3 - <<'PY'
+import sys, pathlib, re
+p=pathlib.Path(sys.argv[1])
+s=p.read_text(encoding='utf-8')
+m=re.search(r'\S', s)
+print(s[m.start()] if m else '')
+PY
+"$src")"
+
+  if [ "$first" = "{" ]; then
+    # Wrap single workflow object into array
+    printf "[" > "$dst"
+    cat "$src" >> "$dst"
+    printf "]" >> "$dst"
+    echo "      Wrapped $src (single object -> array)"
+  else
+    # Already array or unknown: copy as-is
+    cp "$src" "$dst"
+    echo "      Copied $src (array or unknown format)"
+  fi
+}
+
+for wf in "${WORKFLOW_FILES[@]}"; do
+  if [ -f "$WORKFLOW_DIR/$wf" ]; then
+    wrap_workflow "$WORKFLOW_DIR/$wf" "$CI_IMPORT_DIR/$wf"
+  fi
+done
 
 echo "[1/7] Starting n8n container with CI settings..."
 docker run -d --name "$CONTAINER_NAME" \
@@ -31,7 +79,7 @@ docker run -d --name "$CONTAINER_NAME" \
   -e N8N_USER_MANAGEMENT_DISABLED=true \
   -e N8N_ENCRYPTION_KEY=test-key-for-ci-only \
   -e SLACK_SIG_VERIFY_ENABLED=false \
-  -v "$WORKFLOW_DIR:/import:ro" \
+  -v "$CI_IMPORT_DIR:/import:ro" \
   "$N8N_IMAGE" 2>&1
 
 if [ $? -ne 0 ]; then
@@ -75,10 +123,6 @@ while true; do
 done
 
 echo "[3/7] Importing workflows..."
-WORKFLOW_FILES=(
-  "slack_chat_minimal_v1.json"
-  "chat_router_v1.json"
-)
 
 for workflow in "${WORKFLOW_FILES[@]}"; do
   if [ -f "$WORKFLOW_DIR/$workflow" ]; then
