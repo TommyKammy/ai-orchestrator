@@ -7,7 +7,7 @@
         "path": "slack-command",
         "responseMode": "responseNode",
         "options": {
-          "rawBody": true
+          
         }
       },
       "id": "webhook-1",
@@ -20,7 +20,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "json": "{\n  \"response_type\": \"ephemeral\",\n  \"text\": \"Processing your request...\"\n}"
+        "json": "{\"response_type\":\"ephemeral\",\"text\":\"Processing your request...\"}"
       },
       "id": "ack-1",
       "name": "Immediate ACK",
