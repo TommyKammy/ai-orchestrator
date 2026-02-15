@@ -16,7 +16,10 @@
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [250, 300]
+      "position": [
+        250,
+        300
+      ]
     },
     {
       "parameters": {
@@ -27,7 +30,10 @@
       "name": "Load Cursor",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [450, 300],
+      "position": [
+        450,
+        300
+      ],
       "credentials": {
         "postgres": {
           "id": "JNn96XNDVxINxZut",
@@ -60,7 +66,10 @@
       "name": "Gmail List (INBOX)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [650, 300],
+      "position": [
+        650,
+        300
+      ],
       "credentials": {
         "oAuth2Api": {
           "id": "google-oauth",
@@ -79,29 +88,11 @@
           "conditions": [
             {
               "id": "cond-1",
-              "leftValue": "={{ $json.messages }}",
-              "rightValue": "",
+              "leftValue": "={{ $json.messages ? $json.messages.length : 0 }}",
+              "rightValue": 0,
               "operator": {
-                "type": "string",
-                "operation": "exists"
-              }
-            },
-            {
-              "id": "cond-2",
-              "leftValue": "={{ Array.isArray($json.messages) }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            },
-            {
-              "id": "cond-3",
-              "leftValue": "={{ $json.messages.length > 0 }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
+                "type": "number",
+                "operation": "gt"
               }
             }
           ],
@@ -112,7 +103,10 @@
       "name": "Has Messages?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [850, 300]
+      "position": [
+        850,
+        300
+      ]
     },
     {
       "parameters": {
@@ -123,7 +117,10 @@
       "name": "Split Messages",
       "type": "n8n-nodes-base.itemLists",
       "typeVersion": 3,
-      "position": [1050, 200]
+      "position": [
+        1050,
+        200
+      ]
     },
     {
       "parameters": {
@@ -158,7 +155,10 @@
       "name": "Gmail Get Metadata",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1250, 200],
+      "position": [
+        1250,
+        200
+      ],
       "credentials": {
         "oAuth2Api": {
           "id": "google-oauth",
@@ -174,7 +174,10 @@
       "name": "Dedupe + Format",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1450, 200]
+      "position": [
+        1450,
+        200
+      ]
     },
     {
       "parameters": {
@@ -202,19 +205,25 @@
       "name": "Is New?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1650, 200]
+      "position": [
+        1650,
+        200
+      ]
     },
     {
       "parameters": {
         "channel": "#ai-orchestrator-test",
-        "text": "={{ `📩 *New Email*\\n*From:* ${$json.from}\\n*Subject:* ${$json.subject}\\n*Date:* ${$json.date}\\n*Link:* ${$json.link}` }}",
+        "text": "={{ `\ud83d\udce9 *New Email*\\n*From:* ${$json.from}\\n*Subject:* ${$json.subject}\\n*Date:* ${$json.date}\\n*Link:* ${$json.link}` }}",
         "options": {}
       },
       "id": "slack-notify-1",
       "name": "Slack Notify",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2.2,
-      "position": [1850, 100],
+      "position": [
+        1850,
+        100
+      ],
       "credentials": {
         "slackApi": {
           "id": "slack-bot-token",
@@ -231,7 +240,10 @@
       "name": "Save Cursor",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2050, 100],
+      "position": [
+        2050,
+        100
+      ],
       "credentials": {
         "postgres": {
           "id": "JNn96XNDVxINxZut",
@@ -247,7 +259,10 @@
       "name": "Skip Old",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1850, 300]
+      "position": [
+        1850,
+        300
+      ]
     },
     {
       "parameters": {
@@ -257,7 +272,10 @@
       "name": "No Messages",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1050, 400]
+      "position": [
+        1050,
+        400
+      ]
     }
   ],
   "connections": {
@@ -381,5 +399,12 @@
     "saveManualExecutions": true
   },
   "staticData": null,
-  "tags": ["gmail", "slack", "poll", "readonly", "http", "postgres"]
+  "tags": [
+    "gmail",
+    "slack",
+    "poll",
+    "readonly",
+    "http",
+    "postgres"
+  ]
 }
