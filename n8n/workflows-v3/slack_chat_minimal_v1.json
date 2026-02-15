@@ -6,10 +6,8 @@
         "httpMethod": "POST",
         "path": "slack-command",
         "responseMode": "onReceived",
-        "responseData": {
-          "respondWith": "json",
-          "json": "{\"response_type\": \"ephemeral\", \"text\": \"Processing your request...\"}"
-        },
+        "responseBody": "{\"response_type\":\"ephemeral\",\"text\":\"Processing your request...\"}",
+        "responseContentType": "application/json",
         "options": {}
       },
       "id": "webhook-1",
