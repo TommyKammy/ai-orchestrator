@@ -193,30 +193,10 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + $json.id }}",
+        "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + $json.id + '?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date' }}",
         "authentication": "oAuth2",
         "genericAuthType": "httpQueryAuth",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "format",
-              "value": "metadata"
-            },
-            {
-              "name": "metadataHeaders",
-              "value": "From"
-            },
-            {
-              "name": "metadataHeaders",
-              "value": "Subject"
-            },
-            {
-              "name": "metadataHeaders",
-              "value": "Date"
-            }
-          ]
-        },
+        "sendQuery": false,
         "options": {
           "response": {
             "response": {
