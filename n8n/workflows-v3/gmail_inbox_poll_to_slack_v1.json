@@ -147,7 +147,7 @@
     },
     {
       "parameters": {
-        "fieldToSplitOut": "messages",
+        "fieldToSplitOut": "body.messages",
         "options": {}
       },
       "id": "item-lists-split-1",
