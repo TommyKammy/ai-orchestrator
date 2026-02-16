@@ -235,6 +235,7 @@ main() {
     -e WEBHOOK_URL="${WEBHOOK_BASE_URL}" \
     -e N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false \
     -e SLACK_SIG_VERIFY_ENABLED=false \
+    -e N8N_PUBLIC_API_DISABLED=true \
     -v "${CI_IMPORT_DIR}:/import:ro" \
     "${N8N_IMAGE}" >/dev/null
 
@@ -303,6 +304,7 @@ SQL
     -e WEBHOOK_URL="${WEBHOOK_BASE_URL}" \
     -e N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false \
     -e SLACK_SIG_VERIFY_ENABLED=false \
+    -e N8N_PUBLIC_API_DISABLED=true \
     "${N8N_IMAGE}" > /dev/null
 
   if wait_for_n8n_ready "${TIMEOUT_SECONDS}" "after activation"; then
@@ -312,34 +314,53 @@ SQL
   fi
   echo ""
 
-  echo "[5/5] Verifying router webhook by direct invocation (no creds)..."
+  echo "[5/5] Verifying activation and router webhook (no creds)..."
+  
+  # Deterministic verification 1: DB shows workflows active (already verified in step 4)
+  echo "      Checking DB activation state..."
+  docker exec -i "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "
+SELECT id, name, active FROM workflow_entity WHERE active = true;
+" 2>&1 | tee -a "$WORKLOG"
+  
+  # Deterministic verification 2: n8n logs show workflows started
+  echo "      Checking n8n logs for workflow activation..."
+  docker logs --tail 200 "${N8N_CONTAINER}" 2>&1 | tee /tmp/n8n_tail.log | tee -a "$WORKLOG"
+  if ! grep -q "Start Active Workflows" /tmp/n8n_tail.log; then
+    die "n8n logs do not show 'Start Active Workflows' - activation may have failed"
+  fi
+  if ! grep -q "slack_chat_minimal_v1" /tmp/n8n_tail.log; then
+    die "n8n logs do not mention 'slack_chat_minimal_v1' - workflow not loaded"
+  fi
+  if ! grep -q "Chat Router v1" /tmp/n8n_tail.log; then
+    die "n8n logs do not mention 'Chat Router v1' - workflow not loaded"
+  fi
+  echo "      Activation verified via n8n logs."
+  
+  # Extract router path and call webhook
   local router_path
   router_path="$(extract_router_path)" || die "Failed to extract router webhook path from chat_router_v1.json"
   [[ -n "${router_path}" ]] || die "Empty router webhook path extracted"
   echo "Router webhook path: ${router_path}"
 
-  # Extra sanity: ensure workflow appears in active-workflows
-  ACTIVE_JSON="$(curl -fsS "${WEBHOOK_BASE_URL}/rest/active-workflows" || true)"
-  if ! echo "${ACTIVE_JSON}" | grep -q "Chat Router v1 (Adaptive Routing)"; then
-    echo "[debug] /rest/active-workflows response:"
-    echo "${ACTIVE_JSON}"
-    die "Chat Router workflow not listed as active (activation failed)"
-  fi
-
   WEBHOOK_URL="${WEBHOOK_BASE_URL}/webhook/${router_path}"
   PAYLOAD='{"text":"ci test","brain_enabled":false,"user_id":"UCI","channel_id":"CCI"}'
 
-  RESP="$(curl -sS -w "\nHTTP_STATUS:%{http_code}\n" -H 'Content-Type: application/json' -d "${PAYLOAD}" "${WEBHOOK_URL}" || true)"
-  STATUS="$(echo "${RESP}" | sed -n 's/^HTTP_STATUS://p' | tail -n 1)"
-  BODY="$(echo "${RESP}" | sed '/^HTTP_STATUS:/d')"
-
-  echo "Status: ${STATUS}"
-  echo "Body: ${BODY}"
-
+  echo "      Calling webhook: ${WEBHOOK_URL}"
+  RESP="$(curl -sS -i -X POST -H 'Content-Type: application/json' -d "${PAYLOAD}" "${WEBHOOK_URL}" 2>&1 || true)"
+  
+  # Extract HTTP status from response headers
+  STATUS_LINE="$(echo "${RESP}" | head -1)"
+  STATUS="$(echo "${STATUS_LINE}" | grep -oE '[0-9]{3}' | head -1)"
+  BODY="$(echo "${RESP}" | tail -n +$(echo "${RESP}" | grep -n '^$' | head -1 | cut -d: -f1))"
+  
+  echo "      HTTP Status: ${STATUS}"
+  echo "      Response: ${BODY}"
+  
   if [[ "${STATUS}" != "200" ]]; then
     echo ""
-    echo "[debug] active workflows:"
-    echo "${ACTIVE_JSON}"
+    echo "ERROR: Webhook endpoint is auth-protected or unreachable; CI must disable auth via env vars"
+    echo "Full response:"
+    echo "${RESP}"
     die "router webhook call failed, expected 200 got ${STATUS}"
   fi
 
