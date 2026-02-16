@@ -175,10 +175,36 @@ for workflow in "${WORKFLOW_FILES[@]}"; do
   fi
 done
 
-echo "[4/6] Restarting n8n to register webhooks..."
+echo "[4/6] Stopping n8n and activating workflows in SQLite (offline)..."
 docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
 docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
+TMP_DB_DIR="$(mktemp -d)"
+DB_HOST_PATH="$TMP_DB_DIR/database.sqlite"
+
+# Copy database.sqlite from volume to host
+docker run --rm -v "$N8N_DATA_VOLUME":/data -v "$TMP_DB_DIR":/host alpine:3.20 \
+  sh -c 'cp /data/database.sqlite /host/database.sqlite'
+
+ls -la "$DB_HOST_PATH"
+
+# Activate the most recently imported workflows (count = number of workflow files)
+WF_COUNT="${#WORKFLOW_FILES[@]}"
+sqlite3 "$DB_HOST_PATH" <<SQL
+UPDATE workflow_entity SET active=1 WHERE id IN (
+  SELECT id FROM workflow_entity ORDER BY id DESC LIMIT $WF_COUNT
+);
+SELECT id, name, active FROM workflow_entity ORDER BY id DESC LIMIT $WF_COUNT;
+SQL
+
+# Copy modified DB back into the volume
+docker run --rm -v "$N8N_DATA_VOLUME":/data -v "$TMP_DB_DIR":/host alpine:3.20 \
+  sh -c 'cp /host/database.sqlite /data/database.sqlite'
+
+rm -rf "$TMP_DB_DIR"
+echo "Offline activation complete."
+
+echo "[5/6] Starting n8n to register webhooks..."
 docker run -d --name "$CONTAINER_NAME" \
   -p 5678:5678 \
   -e N8N_BASIC_AUTH_ACTIVE=false \
@@ -221,36 +247,47 @@ done
 
 echo "[6/6] Verifying router webhook by direct invocation (no creds)..."
 
-CANDIDATES=(
-  "http://localhost:5678/webhook/chat-router"
-  "http://localhost:5678/webhook-test/chat-router"
-  "http://localhost:5678/webhook/chat_router_v1"
-  "http://localhost:5678/webhook-test/chat_router_v1"
-  "http://localhost:5678/webhook/router"
-  "http://localhost:5678/webhook-test/router"
-)
+# Extract router webhook path from chat_router_v1.json
+ROUTER_PATH="$(python3 -c '
+import json, sys
+try:
+    with open("n8n/workflows-v3/chat_router_v1.json", "r", encoding="utf-8") as f:
+        w = json.load(f)
+    for n in w.get("nodes", []):
+        if n.get("type") == "n8n-nodes-base.webhook":
+            path = n.get("parameters", {}).get("path")
+            if path:
+                print(path)
+                sys.exit(0)
+    sys.exit("No webhook path found")
+except Exception as e:
+    sys.exit(f"Error: {e}")
+')"
 
+if [ -z "$ROUTER_PATH" ]; then
+  echo "ERROR: Failed to extract router webhook path"
+  exit 1
+fi
+
+echo "Router webhook path: $ROUTER_PATH"
+
+WEBHOOK_URL="http://localhost:5678/webhook/${ROUTER_PATH}"
 PAYLOAD='{"text":"ci test","brain_enabled":false,"user_id":"UCI","channel_id":"CCI"}'
 
-OK=0
-for url in "${CANDIDATES[@]}"; do
-  RESP="$(curl -sS -w "\nHTTP_STATUS:%{http_code}\n" -H 'Content-Type: application/json' -d "$PAYLOAD" "$url" || true)"
-  STATUS="$(echo "$RESP" | sed -n 's/^HTTP_STATUS://p' | tail -n 1)"
-  BODY="$(echo "$RESP" | sed '/^HTTP_STATUS:/d')"
+RESP="$(curl -sS -w "\nHTTP_STATUS:%{http_code}\n" -H 'Content-Type: application/json' -d "$PAYLOAD" "$WEBHOOK_URL" || true)"
+STATUS="$(echo "$RESP" | sed -n 's/^HTTP_STATUS://p' | tail -n 1)"
+BODY="$(echo "$RESP" | sed '/^HTTP_STATUS:/d')"
 
-  echo "Tried: $url -> $STATUS"
+echo "Status: $STATUS"
+echo "Body: $BODY"
 
-  if [ "$STATUS" = "200" ]; then
-    echo "$BODY"
-    if echo "$BODY" | grep -q '"status"[[:space:]]*:[[:space:]]*"NO_BRAIN"'; then
-      OK=1
-      break
-    fi
-  fi
-done
+if [ "$STATUS" != "200" ]; then
+  echo "ERROR: router webhook call failed, expected 200 got $STATUS"
+  exit 1
+fi
 
-if [ "$OK" -ne 1 ]; then
-  echo "ERROR: router webhook did not return HTTP 200 with status=NO_BRAIN"
+if ! echo "$BODY" | grep -q '"status"[[:space:]]*:[[:space:]]*"NO_BRAIN"'; then
+  echo "ERROR: router webhook did not return status=NO_BRAIN"
   exit 1
 fi
 
@@ -264,7 +301,8 @@ echo "=========================================="
 echo ""
 echo "Summary:"
 echo "  - Container started successfully"
-echo "  - Workflows imported as active=true"
+echo "  - Workflows imported"
+echo "  - Workflows activated via SQLite (offline)"
 echo "  - Container restarted (webhooks registered on startup)"
 echo "  - Router webhook executed successfully (NO_BRAIN response)"
 echo ""
