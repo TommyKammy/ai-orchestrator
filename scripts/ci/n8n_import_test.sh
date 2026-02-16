@@ -34,6 +34,7 @@ WORKFLOW_FILES=(
 )
 
 CI_IMPORT_DIR=""
+WORKLOG="${WORKLOG:-/dev/null}"
 
 cleanup() {
   echo ""
@@ -69,6 +70,38 @@ wait_for_http_200() {
   start="$(date +%s)"
   while true; do
     if curl -fsS "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    now="$(date +%s)"
+    elapsed=$((now - start))
+    if [[ "$elapsed" -ge "$timeout" ]]; then
+      return 1
+    fi
+    sleep 2
+  done
+}
+
+wait_for_n8n_ready() {
+  local timeout="$1"
+  local label="$2"
+  local start now elapsed
+  start="$(date +%s)"
+  
+  echo "      Waiting for n8n readiness (${label})..."
+  while true; do
+    # Try /healthz/readiness first (preferred, no auth)
+    if curl -fsS "${WEBHOOK_BASE_URL}/healthz/readiness" >/dev/null 2>&1; then
+      echo "      n8n ready via /healthz/readiness"
+      return 0
+    fi
+    # Fallback to /healthz
+    if curl -fsS "${WEBHOOK_BASE_URL}/healthz" >/dev/null 2>&1; then
+      echo "      n8n ready via /healthz"
+      return 0
+    fi
+    # Fallback to /rest/health
+    if curl -fsS "${WEBHOOK_BASE_URL}/rest/health" >/dev/null 2>&1; then
+      echo "      n8n ready via /rest/health"
       return 0
     fi
     now="$(date +%s)"
@@ -206,8 +239,8 @@ main() {
     "${N8N_IMAGE}" >/dev/null
 
   echo "[2/6] Waiting for n8n to be ready (timeout=${TIMEOUT_SECONDS}s)..."
-  if wait_for_http_200 "${WEBHOOK_BASE_URL}/rest/health" "${TIMEOUT_SECONDS}"; then
-    echo "      n8n ready via /rest/health"
+  if wait_for_n8n_ready "${TIMEOUT_SECONDS}" "first start"; then
+    :
   else
     die "n8n failed to become ready within ${TIMEOUT_SECONDS}s"
   fi
@@ -224,9 +257,59 @@ main() {
   done
   echo ""
 
-  echo "[4/6] Activating workflows via n8n CLI (then restart to register webhooks)..."
-  docker exec "${N8N_CONTAINER}" n8n update:workflow --all --active=true >/dev/null
-  echo "      Activation flag updated in DB."
+  echo "[4/6] Stopping n8n and inspecting schema before activation..."
+  docker stop "${N8N_CONTAINER}" > /dev/null 2>&1 || true
+  docker rm -f "${N8N_CONTAINER}" > /dev/null 2>&1 || true
+  
+  echo "      Inspecting workflow_entity schema..."
+  docker exec -i "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "\d workflow_entity" 2>&1 | tee -a "$WORKLOG"
+  
+  echo "      Current workflows in DB (before activation):"
+  docker exec -i "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "
+SELECT id, name, active FROM workflow_entity ORDER BY id;
+" 2>&1 | tee -a "$WORKLOG"
+  
+  echo "      Activating workflows via SQL (schema-safe)..."
+  # Schema-safe activation: only set active=true, no timestamp assumptions
+  docker exec -i "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" <<'SQL' | tee -a "$WORKLOG"
+-- Activate most recently imported workflows
+UPDATE workflow_entity 
+SET active = true 
+WHERE id IN (
+  SELECT id FROM workflow_entity ORDER BY id DESC LIMIT 2
+);
+
+-- Verify activation
+SELECT id, name, active FROM workflow_entity WHERE active = true;
+SQL
+  
+  echo "      Activation complete."
+  echo ""
+
+  echo "[5/6] Starting n8n to register webhooks..."
+  docker run -d --name "${N8N_CONTAINER}" --network "${NETWORK_NAME}" \
+    -p "${N8N_PORT}:5678" \
+    -e DB_TYPE=postgresdb \
+    -e DB_POSTGRESDB_HOST="${POSTGRES_CONTAINER}" \
+    -e DB_POSTGRESDB_PORT=5432 \
+    -e DB_POSTGRESDB_DATABASE="${POSTGRES_DB}" \
+    -e DB_POSTGRESDB_USER="${POSTGRES_USER}" \
+    -e DB_POSTGRESDB_PASSWORD="${POSTGRES_PASSWORD}" \
+    -e N8N_DIAGNOSTICS_ENABLED=false \
+    -e N8N_PERSONALIZATION_ENABLED=false \
+    -e N8N_USER_MANAGEMENT_DISABLED=true \
+    -e N8N_BASIC_AUTH_ACTIVE=false \
+    -e N8N_ENCRYPTION_KEY="${N8N_ENCRYPTION_KEY}" \
+    -e WEBHOOK_URL="${WEBHOOK_BASE_URL}" \
+    -e N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false \
+    -e SLACK_SIG_VERIFY_ENABLED=false \
+    "${N8N_IMAGE}" > /dev/null
+
+  if wait_for_n8n_ready "${TIMEOUT_SECONDS}" "after activation"; then
+    :
+  else
+    die "n8n failed to become ready after restart within ${TIMEOUT_SECONDS}s"
+  fi
   echo ""
 
   echo "[5/6] Restarting n8n to register webhooks..."
