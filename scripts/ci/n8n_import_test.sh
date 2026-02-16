@@ -234,39 +234,42 @@ while true; do
   sleep 2
 done
 
-echo "[7/8] Verifying Slack webhook by direct invocation..."
+echo "[7/8] Verifying router webhook by direct invocation (no creds)..."
 
-# 1) Static sanity: ensure slack_chat_minimal_v1.json contains webhook path slack-command
-if ! grep -q '"path"[[:space:]]*:[[:space:]]*"slack-command"' "$WORKFLOW_DIR/slack_chat_minimal_v1.json"; then
-  echo "ERROR: slack_chat_minimal_v1.json does not contain webhook path slack-command"
+CANDIDATES=(
+  "http://localhost:5678/webhook/chat-router"
+  "http://localhost:5678/webhook-test/chat-router"
+  "http://localhost:5678/webhook/chat_router_v1"
+  "http://localhost:5678/webhook-test/chat_router_v1"
+  "http://localhost:5678/webhook/router"
+  "http://localhost:5678/webhook-test/router"
+)
+
+PAYLOAD='{"text":"ci test","brain_enabled":false,"user_id":"UCI","channel_id":"CCI"}'
+
+OK=0
+for url in "${CANDIDATES[@]}"; do
+  RESP="$(curl -sS -w "\nHTTP_STATUS:%{http_code}\n" -H 'Content-Type: application/json' -d "$PAYLOAD" "$url" || true)"
+  STATUS="$(echo "$RESP" | sed -n 's/^HTTP_STATUS://p' | tail -n 1)"
+  BODY="$(echo "$RESP" | sed '/^HTTP_STATUS:/d')"
+
+  echo "Tried: $url -> $STATUS"
+
+  if [ "$STATUS" = "200" ]; then
+    echo "$BODY"
+    if echo "$BODY" | grep -q '"status"[[:space:]]*:[[:space:]]*"NO_BRAIN"'; then
+      OK=1
+      break
+    fi
+  fi
+done
+
+if [ "$OK" -ne 1 ]; then
+  echo "ERROR: router webhook did not return HTTP 200 with status=NO_BRAIN"
   exit 1
 fi
 
-# 2) Direct invocation: call the webhook endpoint and require HTTP 200
-WEBHOOK_URL="http://localhost:5678/webhook/slack-command"
-
-RESP=$(curl -sS -w "\nHTTP_STATUS:%{http_code}\n" -X POST \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  --data "user_id=U_CI_TEST&channel_id=C_CI_TEST&text=hello&response_url=https%3A%2F%2Fexample.com" \
-  "$WEBHOOK_URL" 2>&1 || true)
-
-echo "$RESP"
-
-STATUS=$(echo "$RESP" | sed -n 's/^HTTP_STATUS://p' | tail -n 1)
-if [ "$STATUS" != "200" ]; then
-  echo "ERROR: webhook call failed, expected 200 got $STATUS"
-  exit 1
-fi
-
-# Check response contains Processing your request (Immediate ACK)
-BODY=$(echo "$RESP" | grep -v "^HTTP_STATUS:")
-if ! echo "$BODY" | grep -q "Processing your request"; then
-  echo "WARN: webhook response did not include expected ACK text"
-fi
-
-echo "Webhook direct invocation OK."
-
-echo "[8/8] All tests complete!"
+echo "Router direct invocation OK."
 
 echo "[8/8] All tests complete!"
 echo ""
@@ -279,8 +282,7 @@ echo "  - Container started successfully"
 echo "  - Workflows imported"
 echo "  - Activation applied (n8n stopped during activation)"
 echo "  - Container restarted with active workflows"
-echo "  - Webhook 'slack-command' registered"
-echo "  - Webhook execution returned immediate ACK"
+echo "  - Router webhook executed successfully (NO_BRAIN response)"
 echo ""
 
 exit 0
