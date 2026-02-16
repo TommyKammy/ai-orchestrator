@@ -34,7 +34,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "json": "={\n  \"status\": \"NO_BRAIN\",\n  \"provider\": \"none\",\n  \"answer\": \"AI brain is not configured yet. Please configure KIMI_API_KEY or OPENAI_API_KEY and restart.\",\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}"
+        "json": "{\n  \"status\": \"NO_BRAIN\",\n  \"provider\": \"none\",\n  \"answer\": \"AI brain is not configured yet. Please configure KIMI_API_KEY or OPENAI_API_KEY and restart.\"\n}"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
