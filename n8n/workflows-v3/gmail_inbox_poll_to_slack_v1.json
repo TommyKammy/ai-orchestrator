@@ -389,7 +389,7 @@
       "name": "Call Router",
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.ROUTER_WEBHOOK_URL || 'http://localhost:5678/webhook/chat/router-v1' }}",
+        "url": "http://localhost:5678/webhook/chat/router-v1",
         "authentication": "none",
         "sendBody": true,
         "contentType": "json",
