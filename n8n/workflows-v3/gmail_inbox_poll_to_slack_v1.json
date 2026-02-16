@@ -370,6 +370,109 @@
         1450,
         200
       ]
+    },
+    {
+      "id": "code-build-router-input",
+      "name": "Build Router Input",
+      "parameters": {
+        "jsCode": "// Get email data from Dedupe + Format node output\nconst email = $input.first().json;\n\n// Extract email content for the prompt\nconst from = email.from || 'Unknown';\nconst subject = email.subject || 'No Subject';\nconst date = email.date || 'Unknown';\nconst id = email.id || 'unknown';\nconst threadId = email.threadId || id;\n\n// Build prompt text for Router\n// Include instructions for output format\nconst promptText = `[Gmail Email Analysis]\n\nFrom: ${from}\nSubject: ${subject}\nDate: ${date}\nMessage ID: ${id}\n\nPlease analyze this email and provide:\n\n1. SUMMARY: A concise summary in 6 lines or less\n\n2. PRIORITY: Rate as High/Medium/Low with brief reason\n\n3. NEXT ACTIONS: Bullet points of suggested actions\n\n4. DRAFT REPLY: A polite business draft reply (in Japanese by default; if the email appears to be in English, provide English draft)\n\nPlease format your response clearly with these sections.`;\n\n// Build Router-compatible input shape\nconst routerInput = {\n  brain_enabled: true,\n  type: \"event_callback\",\n  team_id: \"gmail\",\n  event_id: `gmail-${id}`,\n  event_time: Math.floor(Date.now() / 1000),\n  event: {\n    type: \"message\",\n    text: promptText,\n    user: \"gmail\",\n    channel: \"gmail\",\n    ts: \"0\",\n    thread_ts: \"0\"\n  },\n  tenant_id: \"gmail\",\n  scope: \"email-analysis\",\n  meta: {\n    source: \"gmail\",\n    message_id: id,\n    thread_id: threadId,\n    from: from,\n    subject: subject,\n    date: date\n  }\n};\n\nreturn [{ json: routerInput }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2050,
+        350
+      ]
+    },
+    {
+      "id": "http-call-router",
+      "name": "Call Router",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ROUTER_WEBHOOK_URL }}",
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify($input.first().json) }}",
+        "options": {
+          "response": {
+            "fullResponse": true
+          },
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2250,
+        350
+      ],
+      "continueOnFail": true
+    },
+    {
+      "id": "code-normalize-router",
+      "name": "Normalize Router Response",
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nlet status = 0;\nlet body = null;\nlet text = '';\nlet error = null;\nlet ok = false;\n\n// Handle HTTP fullResponse shape\nif (input.statusCode !== undefined) {\n  status = input.statusCode;\n  body = input.body;\n} else if (input.status !== undefined && typeof input.status === 'number') {\n  status = input.status;\n  body = input.body || input;\n} else {\n  // Direct response (non-HTTP or already parsed)\n  body = input;\n  status = 200;\n}\n\n// Check for HTTP error\nif (status < 200 || status >= 300) {\n  error = `HTTP ${status}`;\n  ok = false;\n} else {\n  ok = true;\n}\n\n// Extract text from body\nif (typeof body === 'string') {\n  text = body;\n  // Try to parse as JSON\n  try {\n    body = JSON.parse(body);\n  } catch (e) {\n    // Keep as string\n    body = null;\n  }\n} else if (typeof body === 'object' && body !== null) {\n  // If body has 'answer' field (Router response format), use that as text\n  if (body.answer) {\n    text = body.answer;\n  } else if (body.text) {\n    text = body.text;\n  } else {\n    // Convert object to string representation\n    text = JSON.stringify(body, null, 2);\n  }\n}\n\n// Check for error in body\nif (body && body.error) {\n  error = body.error.message || body.error;\n  ok = false;\n}\n\nreturn [{\n  json: {\n    ok,\n    status,\n    router_body: body,\n    router_text: text,\n    error\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2450,
+        350
+      ]
+    },
+    {
+      "id": "if-router-ok",
+      "name": "Router OK?",
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2650,
+        350
+      ]
+    },
+    {
+      "id": "slack-ai-summary",
+      "name": "Post AI Summary to Slack",
+      "parameters": {
+        "channel": "#ai-orchestrator-test",
+        "text": "={{ `\ud83d\udce9 *New Email (AI Summary)*\n\n*From:* ${$('Dedupe + Format').first().json.from}\n*Subject:* ${$('Dedupe + Format').first().json.subject}\n*Date:* ${$('Dedupe + Format').first().json.date}\n*Link:* ${$('Dedupe + Format').first().json.link}\n\n*Router Response:*\n${$json.router_text || 'No response text available'}\n\n---\n*Fallback:* If this looks wrong, check the basic notification below.` }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        2850,
+        300
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "mZu6vy5nm85vVl9i",
+          "name": "Slack account"
+        }
+      }
     }
   ],
   "connections": {
@@ -490,6 +593,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Build Router Input",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -538,6 +648,61 @@
         [
           {
             "node": "Metadata OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Router Input": {
+      "main": [
+        [
+          {
+            "node": "Call Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Router": {
+      "main": [
+        [
+          {
+            "node": "Normalize Router Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Router Response": {
+      "main": [
+        [
+          {
+            "node": "Router OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router OK?": {
+      "main": [
+        [
+          {
+            "node": "Post AI Summary to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post AI Summary to Slack": {
+      "main": [
+        [
+          {
+            "node": "Save Cursor",
             "type": "main",
             "index": 0
           }
