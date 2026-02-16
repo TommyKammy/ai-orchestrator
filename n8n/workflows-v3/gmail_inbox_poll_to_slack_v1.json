@@ -281,7 +281,7 @@
     {
       "parameters": {
         "channel": "#ai-orchestrator-test",
-        "text": "={{ const email = $('Dedupe + Format').first().json; `\ud83d\udce9 *New Email*\\n*From:* ${email.from}\\n*Subject:* ${email.subject}\\n*Date:* ${email.date}\\n*Link:* ${email.link}` }}",
+        "text": "={{ `\ud83d\udce9 *New Email*\\n*From:* ${$('Dedupe + Format').first().json.from}\\n*Subject:* ${$('Dedupe + Format').first().json.subject}\\n*Date:* ${$('Dedupe + Format').first().json.date}\\n*Link:* ${$('Dedupe + Format').first().json.link}` }}",
         "options": {}
       },
       "id": "slack-notify-1",
@@ -302,7 +302,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "={{ const email = $('Dedupe + Format').first().json; 'INSERT INTO gmail_cursor(key, last_seen_internal_date, updated_at) VALUES (' + \"'inbox'\" + ', ' + (email.internalDate !== undefined ? email.internalDate : 0) + ', NOW()) ON CONFLICT (key) DO UPDATE SET last_seen_internal_date = GREATEST(gmail_cursor.last_seen_internal_date, EXCLUDED.last_seen_internal_date), updated_at = NOW();' }}"
+        "query": "={{ 'INSERT INTO gmail_cursor(key, last_seen_internal_date, updated_at) VALUES (' + \"'inbox'\" + ', ' + ($('Dedupe + Format').first().json.internalDate !== undefined ? $('Dedupe + Format').first().json.internalDate : 0) + ', NOW()) ON CONFLICT (key) DO UPDATE SET last_seen_internal_date = GREATEST(gmail_cursor.last_seen_internal_date, EXCLUDED.last_seen_internal_date), updated_at = NOW();' }}"
       },
       "id": "postgres-save-cursor-1",
       "name": "Save Cursor",
