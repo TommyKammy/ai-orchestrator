@@ -125,7 +125,7 @@
           "conditions": [
             {
               "id": "cond-1",
-              "leftValue": "={{ $json.body.messages !== undefined && $json.body.messages.length > 0 }}",
+              "leftValue": "={{ $json.status >= 200 && $json.status < 300 }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -413,7 +413,7 @@
       "id": "code-normalize-router",
       "name": "Normalize Router Response",
       "parameters": {
-        "jsCode": "const input = $input.first().json;\n\nlet status = 0;\nlet body = null;\nlet text = '';\nlet error = null;\nlet ok = false;\n\n// Handle HTTP fullResponse shape\nif (input.statusCode !== undefined) {\n  status = input.statusCode;\n  body = input.body;\n} else if (input.status !== undefined && typeof input.status === 'number') {\n  status = input.status;\n  body = input.body || input;\n} else {\n  // Direct response (non-HTTP or already parsed)\n  body = input;\n  status = 200;\n}\n\n// Check for HTTP error\nif (status < 200 || status >= 300) {\n  error = `HTTP ${status}`;\n  ok = false;\n} else {\n  ok = true;\n}\n\n// Extract text from body\nif (typeof body === 'string') {\n  text = body;\n  // Try to parse as JSON\n  try {\n    body = JSON.parse(body);\n  } catch (e) {\n    // Keep as string\n    body = null;\n  }\n} else if (typeof body === 'object' && body !== null) {\n  // If body has 'answer' field (Router response format), use that as text\n  if (body.answer) {\n    text = body.answer;\n  } else if (body.text) {\n    text = body.text;\n  } else {\n    // Convert object to string representation\n    text = JSON.stringify(body, null, 2);\n  }\n}\n\n// Check for error in body\nif (body && body.error) {\n  error = body.error.message || body.error;\n  ok = false;\n}\n\nreturn [{\n  json: {\n    ok,\n    status,\n    router_body: body,\n    router_text: text,\n    error\n  }\n}];"
+        "jsCode": "const input = $input.first().json;\n\nlet status = 0;\nlet body = null;\nlet text = '';\nlet error = null;\nlet ok = false;\nlet router_status = null;\nlet router_provider = null;\n\n// Handle HTTP fullResponse shape\nif (input.statusCode !== undefined) {\n  status = input.statusCode;\n  body = input.body;\n} else if (input.status !== undefined && typeof input.status === 'number') {\n  status = input.status;\n  body = input.body || input;\n} else {\n  // Direct response (non-HTTP or already parsed)\n  body = input;\n  status = 200;\n}\n\n// Check for HTTP error - ok is STRICTLY HTTP 2xx\nif (status >= 200 && status < 300) {\n  ok = true;\n} else {\n  error = `HTTP ${status}`;\n  ok = false;\n}\n\n// Extract text from body\nif (typeof body === 'string') {\n  text = body;\n  // Try to parse as JSON\n  try {\n    body = JSON.parse(body);\n  } catch (e) {\n    // Keep as string\n    body = null;\n  }\n} else if (typeof body === 'object' && body !== null) {\n  // Extract Router-specific fields\n  router_status = body.status || null;\n  router_provider = body.provider || null;\n  \n  // If body has 'answer' field (Router response format), use that as text\n  if (body.answer) {\n    text = body.answer;\n  } else if (body.text) {\n    text = body.text;\n  } else {\n    // Convert object to string representation\n    text = JSON.stringify(body, null, 2);\n  }\n}\n\n// Note: We do NOT set ok=false for body.error\n// We want to display Router responses even when status is NO_BRAIN\n// ok is strictly based on HTTP status (2xx = ok)\n\nreturn [{\n  json: {\n    ok,\n    status,\n    router_body: body,\n    router_text: text,\n    router_status,\n    router_provider,\n    error\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -458,7 +458,7 @@
       "name": "Post AI Summary to Slack",
       "parameters": {
         "channel": "#ai-orchestrator-test",
-        "text": "={{ `\ud83d\udce9 *New Email (AI Summary)*\n\n*From:* ${$('Dedupe + Format').first().json.from}\n*Subject:* ${$('Dedupe + Format').first().json.subject}\n*Date:* ${$('Dedupe + Format').first().json.date}\n*Link:* ${$('Dedupe + Format').first().json.link}\n\n*Router Response:*\n${$json.router_text || 'No response text available'}\n\n---\n*Fallback:* If this looks wrong, check the basic notification below.` }}",
+        "text": "={{ `\ud83d\udce9 *New Email (Router Output)*\n\n*From:* ${$('Dedupe + Format').first().json.from}\n*Subject:* ${$('Dedupe + Format').first().json.subject}\n*Date:* ${$('Dedupe + Format').first().json.date}\n*Link:* ${$('Dedupe + Format').first().json.link}\n\n*Router:* status=${$json.router_status || 'unknown'} provider=${$json.router_provider || 'unknown'} http=${$json.status}${$json.router_status === 'NO_BRAIN' ? '\n\n\u26a0\ufe0f *Note:* LLM provider not configured yet. Set KIMI_API_KEY or OPENAI_API_KEY and restart.' : ''}\n\n*Router Response:*\n${$json.router_text || 'No response text available'}\n\n---\n*Info:* This message shows Router output even when no LLM keys are configured.` }}",
         "options": {}
       },
       "type": "n8n-nodes-base.slack",
