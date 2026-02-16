@@ -5,7 +5,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "chat/router-v1",
-        "responseMode": "responseNode"
+        "responseMode": "lastNode"
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
@@ -30,16 +30,6 @@
       "typeVersion": 1,
       "position": [650, 300],
       "name": "Return NO BRAIN Response"
-    },
-    {
-      "parameters": {
-        "respondWith": "json",
-        "jsCode": "const result = $input.first().json;\nreturn [{\n  json: {\n    status: result.status,\n    provider: result.provider,\n    answer: result.answer,\n    tenant_id: result.tenant_id,\n    scope: result.scope,\n    timestamp: result.timestamp\n  }\n}];"
-      },
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1,
-      "position": [850, 300],
-      "name": "Success Response"
     }
   ],
   "connections": {
@@ -59,17 +49,6 @@
         [
           {
             "node": "Return NO BRAIN Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Return NO BRAIN Response": {
-      "main": [
-        [
-          {
-            "node": "Success Response",
             "type": "main",
             "index": 0
           }

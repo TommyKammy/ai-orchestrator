@@ -34,16 +34,20 @@ WORKFLOW_FILES=(
 )
 
 CI_IMPORT_DIR=""
+POSTGRES_DATA_DIR=""
 WORKLOG="${WORKLOG:-/dev/null}"
 
 cleanup() {
   echo ""
   echo "[cleanup] Removing containers/network/tmp..."
-  docker rm -f "${N8N_CONTAINER}" >/dev/null 2>&1 || true
-  docker rm -f "${POSTGRES_CONTAINER}" >/dev/null 2>&1 || true
+  docker rm -f -v "${N8N_CONTAINER}" >/dev/null 2>&1 || true
+  docker rm -f -v "${POSTGRES_CONTAINER}" >/dev/null 2>&1 || true
   docker network rm "${NETWORK_NAME}" >/dev/null 2>&1 || true
   if [[ -n "${CI_IMPORT_DIR}" && -d "${CI_IMPORT_DIR}" ]]; then
     rm -rf "${CI_IMPORT_DIR}" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${POSTGRES_DATA_DIR}" && -d "${POSTGRES_DATA_DIR}" ]]; then
+    rm -rf "${POSTGRES_DATA_DIR}" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -195,10 +199,13 @@ main() {
   docker network create "${NETWORK_NAME}" >/dev/null
 
   echo "[CI] Starting Postgres container..."
+  # Use bind mount to ensure fresh database on each run (avoid migration conflicts)
+  POSTGRES_DATA_DIR="$(mktemp -d)"
   docker run -d --name "${POSTGRES_CONTAINER}" --network "${NETWORK_NAME}" \
     -e POSTGRES_DB="${POSTGRES_DB}" \
     -e POSTGRES_USER="${POSTGRES_USER}" \
     -e POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
+    -v "${POSTGRES_DATA_DIR}:/var/lib/postgresql/data" \
     "${POSTGRES_IMAGE}" >/dev/null
 
   echo "[CI] Waiting for Postgres readiness..."
@@ -218,50 +225,29 @@ main() {
   done
   echo ""
 
-  echo "[1/5] Starting n8n container with Postgres backend..."
-  docker run -d --name "${N8N_CONTAINER}" --network "${NETWORK_NAME}" \
-    -p "${N8N_PORT}:5678" \
-    -e DB_TYPE=postgresdb \
-    -e DB_POSTGRESDB_HOST="${POSTGRES_CONTAINER}" \
-    -e DB_POSTGRESDB_PORT=5432 \
-    -e DB_POSTGRESDB_DATABASE="${POSTGRES_DB}" \
-    -e DB_POSTGRESDB_USER="${POSTGRES_USER}" \
-    -e DB_POSTGRESDB_PASSWORD="${POSTGRES_PASSWORD}" \
-    -e N8N_DIAGNOSTICS_ENABLED=false \
-    -e N8N_PERSONALIZATION_ENABLED=false \
-    -e N8N_USER_MANAGEMENT_DISABLED=true \
-    -e N8N_BASIC_AUTH_ACTIVE=false \
-    -e N8N_ENCRYPTION_KEY="${N8N_ENCRYPTION_KEY}" \
-    -e WEBHOOK_URL="${WEBHOOK_BASE_URL}" \
-    -e N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false \
-    -e SLACK_SIG_VERIFY_ENABLED=false \
-    -e N8N_PUBLIC_API_DISABLED=true \
-    -v "${CI_IMPORT_DIR}:/import:ro" \
-    "${N8N_IMAGE}" >/dev/null
-
-  echo "[2/5] Waiting for n8n to be ready (timeout=${TIMEOUT_SECONDS}s)..."
-  if wait_for_n8n_ready "${TIMEOUT_SECONDS}" "first start"; then
-    :
-  else
-    die "n8n failed to become ready within ${TIMEOUT_SECONDS}s"
-  fi
-  echo ""
-
-  echo "[3/5] Importing workflows..."
+  echo "[1/5] Importing workflows (before starting n8n to avoid migration conflicts)..."
+  # Import into fresh database using temporary container (runs migrations once)
   for wf in "${WORKFLOW_FILES[@]}"; do
     if [[ -f "${WORKFLOW_DIR}/${wf}" ]]; then
       echo "      Importing ${wf}..."
-      # NOTE: n8n may deactivate workflows on import; we activate in next step.
-      docker exec "${N8N_CONTAINER}" n8n import:workflow --input="/import/${wf}" >/dev/null
+      docker run --rm --network "${NETWORK_NAME}" \
+        -e DB_TYPE=postgresdb \
+        -e DB_POSTGRESDB_HOST="${POSTGRES_CONTAINER}" \
+        -e DB_POSTGRESDB_PORT=5432 \
+        -e DB_POSTGRESDB_DATABASE="${POSTGRES_DB}" \
+        -e DB_POSTGRESDB_USER="${POSTGRES_USER}" \
+        -e DB_POSTGRESDB_PASSWORD="${POSTGRES_PASSWORD}" \
+        -e N8N_DIAGNOSTICS_ENABLED=false \
+        -e N8N_PERSONALIZATION_ENABLED=false \
+        -e N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false \
+        -v "${CI_IMPORT_DIR}:/import:ro" \
+        "${N8N_IMAGE}" import:workflow --input="/import/${wf}" >/dev/null
       echo "      Imported ${wf}"
     fi
   done
   echo ""
 
-  echo "[4/5] Stopping n8n and inspecting schema before activation..."
-  docker stop "${N8N_CONTAINER}" > /dev/null 2>&1 || true
-  docker rm -f "${N8N_CONTAINER}" > /dev/null 2>&1 || true
-  
+  echo "[2/5] Inspecting schema and activating workflows..."
   echo "      Inspecting workflow_entity schema..."
   docker exec -i "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "\d workflow_entity" 2>&1 | tee -a "$WORKLOG"
   
@@ -270,24 +256,20 @@ main() {
 SELECT id, name, active FROM workflow_entity ORDER BY id;
 " 2>&1 | tee -a "$WORKLOG"
   
-  echo "      Activating workflows via SQL (schema-safe)..."
-  # Schema-safe activation: only set active=true, no timestamp assumptions
+  echo "      Activating workflows via SQL..."
   docker exec -i "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" <<'SQL' | tee -a "$WORKLOG"
--- Activate most recently imported workflows
 UPDATE workflow_entity 
 SET active = true 
 WHERE id IN (
   SELECT id FROM workflow_entity ORDER BY id DESC LIMIT 2
 );
-
--- Verify activation
 SELECT id, name, active FROM workflow_entity WHERE active = true;
 SQL
   
   echo "      Activation complete."
   echo ""
 
-  echo "[5/5] Starting n8n to register webhooks..."
+  echo "[3/5] Starting n8n to register webhooks..."
   docker run -d --name "${N8N_CONTAINER}" --network "${NETWORK_NAME}" \
     -p "${N8N_PORT}:5678" \
     -e DB_TYPE=postgresdb \
@@ -305,6 +287,8 @@ SQL
     -e N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false \
     -e SLACK_SIG_VERIFY_ENABLED=false \
     -e N8N_PUBLIC_API_DISABLED=true \
+    -e CI=true \
+    -e APP_ENV=ci \
     "${N8N_IMAGE}" > /dev/null
 
   if wait_for_n8n_ready "${TIMEOUT_SECONDS}" "after activation"; then
@@ -314,7 +298,7 @@ SQL
   fi
   echo ""
 
-  echo "[5/5] Verifying activation and router webhook (no creds)..."
+  echo "[4/5] Verifying activation and router webhook (no creds)..."
   
   # Deterministic verification 1: DB shows workflows active (already verified in step 4)
   echo "      Checking DB activation state..."
@@ -343,7 +327,8 @@ SELECT id, name, active FROM workflow_entity WHERE active = true;
   echo "Router webhook path: ${router_path}"
 
   WEBHOOK_URL="${WEBHOOK_BASE_URL}/webhook/${router_path}"
-  PAYLOAD='{"text":"ci test","brain_enabled":false,"user_id":"UCI","channel_id":"CCI"}'
+  # Payload must match what chat_router_v1 expects: tenant_id, scope, message (or text)
+  PAYLOAD='{"tenant_id":"ci-tenant","scope":"ci-test","text":"ci test message","brain_enabled":false}'
 
   echo "      Calling webhook: ${WEBHOOK_URL}"
   # Use curl write-out for deterministic HTTP status extraction (avoids tail -n + parsing)
@@ -361,7 +346,26 @@ SELECT id, name, active FROM workflow_entity WHERE active = true;
   
   if [[ "${HTTP_STATUS}" != "200" ]]; then
     echo ""
-    echo "ERROR: Webhook endpoint is auth-protected or unreachable; CI must disable auth via env vars"
+    echo "ERROR: Webhook endpoint returned non-200 status"
+    echo ""
+    echo "[debug] Recent executions (execution_entity)..."
+    docker exec -i "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "
+SELECT id, \"workflowId\", status, \"startedAt\", \"stoppedAt\"
+FROM execution_entity
+ORDER BY \"startedAt\" DESC
+LIMIT 5;
+" 2>&1 | tee -a "$WORKLOG"
+    echo ""
+    echo "[debug] Recent execution_data (error details)..."
+    docker exec -i "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "
+SELECT \"executionId\", LEFT(data::text, 2000) AS data_snippet
+FROM execution_data
+ORDER BY \"executionId\" DESC
+LIMIT 3;
+" 2>&1 | tee -a "$WORKLOG"
+    echo ""
+    echo "[debug] n8n logs (tail 400):"
+    docker logs --tail 400 "${N8N_CONTAINER}" 2>&1 | tee -a "$WORKLOG"
     die "router webhook call failed, expected 200 got ${HTTP_STATUS}"
   fi
 
