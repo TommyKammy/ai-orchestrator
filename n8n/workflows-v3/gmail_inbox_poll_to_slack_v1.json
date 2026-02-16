@@ -62,10 +62,9 @@
         },
         "options": {
           "response": {
-            "response": {
-              "neverError": true
-            }
-          }
+            "fullResponse": true
+          },
+          "timeout": 60000
         }
       },
       "id": "http-gmail-list-1",
@@ -81,7 +80,8 @@
           "id": "lE1e0CeTGQva4A8i",
           "name": "Google account"
         }
-      }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -94,7 +94,7 @@
           "conditions": [
             {
               "id": "cond-1",
-              "leftValue": "={{ $json.messages !== undefined }}",
+              "leftValue": "={{ $json.ok === true }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -125,7 +125,7 @@
           "conditions": [
             {
               "id": "cond-1",
-              "leftValue": "={{ $json.messages ? $json.messages.length : 0 }}",
+              "leftValue": "={{ $json.body.messages !== undefined && $json.body.messages.length > 0 }}",
               "rightValue": 0,
               "operator": {
                 "type": "number",
@@ -170,7 +170,7 @@
           "conditions": [
             {
               "id": "cond-1",
-              "leftValue": "={{ $json.payload !== undefined && $json.payload.headers !== undefined }}",
+              "leftValue": "={{ $json.ok === true && $json.body.payload !== undefined }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -199,10 +199,9 @@
         "sendQuery": false,
         "options": {
           "response": {
-            "response": {
-              "neverError": true
-            }
-          }
+            "fullResponse": true
+          },
+          "timeout": 60000
         },
         "responseFormat": "text"
       },
@@ -219,7 +218,8 @@
           "id": "lE1e0CeTGQva4A8i",
           "name": "Google account"
         }
-      }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -236,7 +236,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const d = $json;\n\n// Support both response shapes (direct or wrapped in body)\nconst msg = d.payload ? d : (d.body && d.body.payload ? d.body : d);\n\n// Get headers from correct location\nconst headers = msg.payload?.headers || [];\nconst get = (name) =>\n  headers.find(h => (h.name || '').toLowerCase() === name.toLowerCase())?.value;\n\nconst from = get('From') || 'Unknown';\nconst subject = get('Subject') || 'Unknown';\nconst date = get('Date') || 'Unknown';\n\nconst internalDate = Number(msg.internalDate || 0);\nconst id = msg.id || 'unknown';\n\n// Read cursor from Load Cursor node (via cross-node reference)\nlet lastSeen = 0;\ntry {\n  const cursorData = $('Load Cursor').first().json;\n  lastSeen = Number(cursorData.last_seen_internal_date || 0);\n} catch(e) {\n  lastSeen = 0;\n}\n\n// Dedupe check\nif (internalDate && internalDate <= lastSeen) {\n  return [{ json: { status: \"SKIP_OLD\", id } }];\n}\n\nreturn [{\n  json: {\n    status: \"NEW\",\n    id,\n    threadId: msg.threadId,\n    from,\n    subject,\n    date,\n    internalDate,\n    link: `https://mail.google.com/mail/u/0/#inbox/${id}`\n  }\n}];"
+        "jsCode": "const d = $json;\n\n// Support normalized shape (body.payload) and direct shape (payload)\nconst msg = d.body?.payload ? d.body : (d.payload ? d : null);\n\nif (!msg) {\n  return [{ json: { status: 'METADATA_INVALID', note: 'No payload found' } }];\n}\n\n// Get headers from correct location\nconst headers = msg.payload?.headers || [];\nconst get = (name) => {\n  const h = headers.find(h => (h.name || '').toLowerCase() === name.toLowerCase());\n  return h ? h.value : 'Unknown';\n};\n\nconst from = get('From');\nconst subject = get('Subject');\nconst date = get('Date');\nconst internalDate = Number(msg.internalDate || 0);\nconst id = msg.id || 'unknown';\n\n// Read cursor from Load Cursor node\nlet lastSeen = 0;\ntry {\n  const cursorData = $('Load Cursor').first().json;\n  lastSeen = Number(cursorData.last_seen_internal_date || 0);\n} catch(e) {\n  lastSeen = 0;\n}\n\n// Dedupe check\nif (internalDate && internalDate <= lastSeen) {\n  return [{ json: { status: 'SKIP_OLD', id } }];\n}\n\nreturn [{\n  json: {\n    status: 'NEW',\n    id,\n    threadId: msg.threadId || id,\n    from,\n    subject,\n    date,\n    internalDate,\n    link: `https://mail.google.com/mail/u/0/#inbox/${id}`\n  }\n}];"
       },
       "id": "code-dedupe-format-1",
       "name": "Dedupe + Format",
@@ -344,6 +344,32 @@
         1050,
         400
       ]
+    },
+    {
+      "id": "normalize-list-response",
+      "name": "Normalize List Response",
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nlet status = 0;\nlet body = {};\nlet error = null;\n\n// Handle fullResponse shape (HTTP Request with fullResponse: true)\nif (input.statusCode !== undefined) {\n  status = input.statusCode;\n  body = input.body || {};\n} else if (input.status !== undefined && typeof input.status === 'number') {\n  status = input.status;\n  body = input.body || input;\n} else if (input.messages !== undefined || input.resultSizeEstimate !== undefined) {\n  // Direct Gmail API response shape\n  body = input;\n  status = 200;\n} else {\n  // Unknown shape - could be error\n  body = input;\n  status = input.statusCode || input.status || 0;\n}\n\n// Check for error indicators\nif (input.error || input.message) {\n  error = input.error || input.message;\n}\n\nreturn [{\n  json: {\n    ok: (status >= 200 && status < 300),\n    status,\n    body,\n    error,\n    _source: 'Gmail List (INBOX)'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "id": "normalize-metadata-response",
+      "name": "Normalize Metadata Response",
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nlet status = 0;\nlet body = {};\nlet error = null;\nlet raw = null;\n\n// HTTP Request with fullResponse: true returns statusCode and body\nif (input.statusCode !== undefined) {\n  status = input.statusCode;\n  raw = input.body;\n} else if (input.status !== undefined && typeof input.status === 'number') {\n  status = input.status;\n  raw = input.body || input;\n} else {\n  // Direct response\n  raw = input;\n  status = 200;\n}\n\n// Parse raw response if it's a string (JSON text)\nif (typeof raw === 'string') {\n  try {\n    body = JSON.parse(raw);\n  } catch (e) {\n    error = String(e);\n    body = { rawText: raw.slice(0, 1000) };\n  }\n} else if (typeof raw === 'object' && raw !== null) {\n  body = raw;\n} else {\n  body = {};\n}\n\n// Check for error indicators\nif (input.error || input.message) {\n  error = input.error || input.message;\n}\n\n// Check for Gmail API error in body\nif (body.error) {\n  error = body.error.message || JSON.stringify(body.error);\n  status = body.error.code || status;\n}\n\nreturn [{\n  json: {\n    ok: (status >= 200 && status < 300 && !error),\n    status,\n    body,\n    error,\n    _source: 'Gmail Get Metadata (RAW)'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        200
+      ]
     }
   ],
   "connections": {
@@ -373,7 +399,7 @@
       "main": [
         [
           {
-            "node": "List OK?",
+            "node": "Normalize List Response",
             "type": "main",
             "index": 0
           }
@@ -431,18 +457,7 @@
       "main": [
         [
           {
-            "node": "Parse Gmail Metadata JSON",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Parse Gmail Metadata JSON": {
-      "main": [
-        [
-          {
-            "node": "Metadata OK?",
+            "node": "Normalize Metadata Response",
             "type": "main",
             "index": 0
           }
@@ -501,6 +516,28 @@
         [
           {
             "node": "Save Cursor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize List Response": {
+      "main": [
+        [
+          {
+            "node": "List OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Metadata Response": {
+      "main": [
+        [
+          {
+            "node": "Metadata OK?",
             "type": "main",
             "index": 0
           }
