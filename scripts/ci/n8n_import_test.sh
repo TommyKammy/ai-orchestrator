@@ -60,7 +60,7 @@ with open(src, "r", encoding="utf-8") as f:
 
 def ensure_active(obj):
     if isinstance(obj, dict) and "active" not in obj:
-        obj["active"] = False
+        obj["active"] = True
     return obj
 
 # CLI import may receive either a single object or a list
@@ -92,7 +92,7 @@ wrap_workflow() {
   fi
 
   normalize_and_write "$src" "$dst"
-  echo "      Normalized $(basename "$src") (ensured active=false; wrapped as array)"
+  echo "      Normalized $(basename "$src") (ensured active=true; wrapped as array)"
 }
 
 for wf in "${WORKFLOW_FILES[@]}"; do
@@ -107,7 +107,7 @@ chmod -R a+rX "$CI_IMPORT_DIR"
 # Debug: show permissions
 ls -la "$CI_IMPORT_DIR"
 
-echo "[1/8] Starting n8n container with CI settings..."
+echo "[1/6] Starting n8n container with CI settings..."
 docker run -d --name "$CONTAINER_NAME" \
   -p 5678:5678 \
   -e N8N_BASIC_AUTH_ACTIVE=false \
@@ -125,7 +125,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "[2/8] Waiting for n8n to be ready (timeout=${TIMEOUT}s)..."
+echo "[2/6] Waiting for n8n to be ready (timeout=${TIMEOUT}s)..."
 READY_TIMEOUT_SECONDS=${TIMEOUT:-240}
 START_TS=$(date +%s)
 
@@ -160,7 +160,7 @@ while true; do
   sleep 2
 done
 
-echo "[3/8] Importing workflows..."
+echo "[3/6] Importing workflows..."
 
 for workflow in "${WORKFLOW_FILES[@]}"; do
   if [ -f "$WORKFLOW_DIR/$workflow" ]; then
@@ -175,25 +175,10 @@ for workflow in "${WORKFLOW_FILES[@]}"; do
   fi
 done
 
-echo "[4/8] Stopping n8n to apply activation..."
+echo "[4/6] Restarting n8n to register webhooks..."
 docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
-
-echo "Removing stopped container to avoid name conflict..."
 docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
-echo "Activating workflows via n8n CLI (while n8n is stopped)..."
-docker run --rm \
-  --entrypoint n8n \
-  -v "$N8N_DATA_VOLUME":/home/node/.n8n \
-  -e N8N_ENCRYPTION_KEY=test-key-for-ci-only \
-  "$N8N_IMAGE" \
-  update:workflow --all --active=true 2>&1
-
-echo "Activation complete (applied while n8n stopped)."
-
-echo "[5/8] Starting n8n container again..."
-# Safety: ensure no container with this name exists
-docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 docker run -d --name "$CONTAINER_NAME" \
   -p 5678:5678 \
   -e N8N_BASIC_AUTH_ACTIVE=false \
@@ -205,7 +190,7 @@ docker run -d --name "$CONTAINER_NAME" \
   -v "$N8N_DATA_VOLUME":/home/node/.n8n \
   "$N8N_IMAGE" 2>&1
 
-echo "[6/8] Waiting for n8n to be ready after restart..."
+echo "[5/6] Waiting for n8n to be ready after restart..."
 READY_TIMEOUT_SECONDS=${TIMEOUT:-240}
 START_TS=$(date +%s)
 
@@ -234,7 +219,7 @@ while true; do
   sleep 2
 done
 
-echo "[7/8] Verifying router webhook by direct invocation (no creds)..."
+echo "[6/6] Verifying router webhook by direct invocation (no creds)..."
 
 CANDIDATES=(
   "http://localhost:5678/webhook/chat-router"
@@ -271,7 +256,7 @@ fi
 
 echo "Router direct invocation OK."
 
-echo "[8/8] All tests complete!"
+echo "[6/6] All tests complete!"
 echo ""
 echo "=========================================="
 echo "✓ ALL CHECKS PASSED"
@@ -279,9 +264,8 @@ echo "=========================================="
 echo ""
 echo "Summary:"
 echo "  - Container started successfully"
-echo "  - Workflows imported"
-echo "  - Activation applied (n8n stopped during activation)"
-echo "  - Container restarted with active workflows"
+echo "  - Workflows imported as active=true"
+echo "  - Container restarted (webhooks registered on startup)"
 echo "  - Router webhook executed successfully (NO_BRAIN response)"
 echo ""
 
