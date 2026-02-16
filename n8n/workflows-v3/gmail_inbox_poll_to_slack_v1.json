@@ -126,10 +126,10 @@
             {
               "id": "cond-1",
               "leftValue": "={{ $json.body.messages !== undefined && $json.body.messages.length > 0 }}",
-              "rightValue": 0,
+              "rightValue": true,
               "operator": {
-                "type": "number",
-                "operation": "gt"
+                "type": "boolean",
+                "operation": "equals"
               }
             }
           ],
