@@ -346,22 +346,23 @@ SELECT id, name, active FROM workflow_entity WHERE active = true;
   PAYLOAD='{"text":"ci test","brain_enabled":false,"user_id":"UCI","channel_id":"CCI"}'
 
   echo "      Calling webhook: ${WEBHOOK_URL}"
-  RESP="$(curl -sS -i -X POST -H 'Content-Type: application/json' -d "${PAYLOAD}" "${WEBHOOK_URL}" 2>&1 || true)"
+  # Use curl write-out for deterministic HTTP status extraction (avoids tail -n + parsing)
+  HTTP_STATUS="$(curl -sS -o /tmp/webhook_body.txt -w '%{http_code}' \
+    -X POST -H 'Content-Type: application/json' -d "${PAYLOAD}" "${WEBHOOK_URL}" \
+    2>/tmp/webhook_err.txt || true)"
+  BODY="$(cat /tmp/webhook_body.txt 2>/dev/null || true)"
+  ERR="$(cat /tmp/webhook_err.txt 2>/dev/null || true)"
   
-  # Extract HTTP status from response headers
-  STATUS_LINE="$(echo "${RESP}" | head -1)"
-  STATUS="$(echo "${STATUS_LINE}" | grep -oE '[0-9]{3}' | head -1)"
-  BODY="$(echo "${RESP}" | tail -n +$(echo "${RESP}" | grep -n '^$' | head -1 | cut -d: -f1))"
+  echo "      HTTP Status: ${HTTP_STATUS}"
+  echo "      Body: ${BODY}"
+  if [[ -n "${ERR}" ]]; then
+    echo "      Curl stderr: ${ERR}"
+  fi
   
-  echo "      HTTP Status: ${STATUS}"
-  echo "      Response: ${BODY}"
-  
-  if [[ "${STATUS}" != "200" ]]; then
+  if [[ "${HTTP_STATUS}" != "200" ]]; then
     echo ""
     echo "ERROR: Webhook endpoint is auth-protected or unreachable; CI must disable auth via env vars"
-    echo "Full response:"
-    echo "${RESP}"
-    die "router webhook call failed, expected 200 got ${STATUS}"
+    die "router webhook call failed, expected 200 got ${HTTP_STATUS}"
   fi
 
   if ! echo "${BODY}" | grep -q '"status"[[:space:]]*:[[:space:]]*"NO_BRAIN"'; then
