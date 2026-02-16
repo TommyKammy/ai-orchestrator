@@ -372,10 +372,10 @@
       ]
     },
     {
-      "id": "code-build-router-input",
-      "name": "Build Router Input",
+      "id": "code-build-brain-input",
+      "name": "Build Brain Input",
       "parameters": {
-        "jsCode": "// Get email data from Dedupe + Format node output\nconst email = $input.first().json;\n\n// Extract email content for the prompt\nconst from = email.from || 'Unknown';\nconst subject = email.subject || 'No Subject';\nconst date = email.date || 'Unknown';\nconst id = email.id || 'unknown';\nconst threadId = email.threadId || id;\n\n// Build prompt text for Router\nconst promptText = `[Gmail Email Analysis]\n\nFrom: ${from}\nSubject: ${subject}\nDate: ${date}\nMessage ID: ${id}\n\nPlease analyze this email and provide:\n1. SUMMARY: A concise summary in 6 lines or less\n2. PRIORITY: Rate as High/Medium/Low with brief reason\n3. NEXT ACTIONS: Bullet points of suggested actions\n4. DRAFT REPLY: A polite business draft reply (in Japanese by default; if the email appears to be in English, provide English draft)`;\n\n// Build Router-compatible input with REQUIRED top-level fields\nconst routerInput = {\n  // REQUIRED: Router validates these fields\n  tenant_id: \"gmail\",\n  scope: \"email-analysis\",\n  message: promptText,\n  brain_enabled: false,\n  \n  // Metadata for context\n  meta: {\n    source: \"gmail\",\n    message_id: id,\n    thread_id: threadId,\n    from: from,\n    subject: subject,\n    date: date\n  }\n};\n\nreturn [{ json: routerInput }];"
+        "jsCode": "// Get email data from Dedupe + Format node output\nconst email = $input.first().json;\n\n// Extract email content for the prompt\nconst from = email.from || 'Unknown';\nconst subject = email.subject || 'No Subject';\nconst date = email.date || 'Unknown';\nconst id = email.id || 'unknown';\nconst threadId = email.threadId || id;\n\n// Build prompt text for Brain Router\nconst promptText = `[Gmail Email Analysis]\n\nFrom: ${from}\nSubject: ${subject}\nDate: ${date}\nMessage ID: ${id}\n\nPlease analyze this email and provide:\n1. SUMMARY: A concise summary in 6 lines or less\n2. PRIORITY: Rate as High/Medium/Low with brief reason\n3. NEXT ACTIONS: Bullet points of suggested actions\n4. DRAFT REPLY: A polite business draft reply (in Japanese by default; if the email appears to be in English, provide English draft)]`;\n\n// Build brain_router_v1 compatible input\nconst brainInput = {\n  tenant_id: \"gmail\",\n  scope: \"email-analysis\",\n  message: promptText,\n  \n  // Metadata for context\n  meta: {\n    source: \"gmail\",\n    message_id: id,\n    thread_id: threadId,\n    from: from,\n    subject: subject,\n    date: date\n  },\n  \n  // Brain configuration (provider: none = NO_BRAIN, openai = OpenAI, kimi = Kimi/Moonshot)\n  brain: {\n    provider: \"none\",  // Default to none - change to \"openai\" or \"kimi\" when API keys configured\n    model: \"gpt-4\",\n    temperature: 0.2\n  }\n};\n\nreturn [{ json: brainInput }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -384,34 +384,30 @@
         350
       ]
     },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2050,
+        350
+      ]
+    },
     {
-      "id": "http-call-router",
-      "name": "Call Router",
+      "id": "execute-brain-router",
+      "name": "Execute Brain Router",
       "parameters": {
-        "method": "POST",
-        "url": "http://localhost:5678/webhook/chat/router-v1",
-        "authentication": "none",
-        "sendBody": true,
-        "contentType": "json",
-        "body": "={{ $input.first().json }}",
-        "options": {
-          "response": {
-            "fullResponse": true
-          },
-          "timeout": 60000
-        }
+        "workflowId": "={{ $input.first().json.workflowId || 'brain_router_v1' }}",
+        "workflowData": "={{ $input.first().json }}"
       },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
       "position": [
         2250,
         350
-      ],
-      "continueOnFail": true
+      ]
     },
     {
-      "id": "code-normalize-router",
-      "name": "Normalize Router Response",
+      "id": "code-process-brain",
+      "name": "Process Brain Response",
       "parameters": {
         "jsCode": "const input = $input.first().json;\n\n// DEBUG: Log raw input\nconsole.log('Router raw input:', JSON.stringify(input).slice(0, 500));\n\nlet status = 0;\nlet body = null;\nlet text = '';\nlet error = null;\nlet ok = false;\nlet router_status = null;\nlet router_provider = null;\n\n// Handle HTTP fullResponse shape\nif (input.statusCode !== undefined) {\n  status = input.statusCode;\n  body = input.body;\n} else if (input.status !== undefined && typeof input.status === 'number') {\n  status = input.status;\n  body = input.body || input;\n} else {\n  // Direct response (non-HTTP or already parsed)\n  body = input;\n  status = 200;\n}\n\n// Check for HTTP error - ok is STRICTLY HTTP 2xx\nif (status >= 200 && status < 300) {\n  ok = true;\n} else {\n  error = `HTTP ${status}`;\n  ok = false;\n}\n\n// DEBUG: Log body type and content\nconsole.log('Router body type:', typeof body);\nconsole.log('Router body sample:', typeof body === 'string' ? body.slice(0, 200) : JSON.stringify(body).slice(0, 200));\n\n// Extract text from body\nif (typeof body === 'string') {\n  text = body;\n  // Try to parse as JSON\n  try {\n    body = JSON.parse(body);\n  } catch (e) {\n    // Keep as string, set error\n    error = `Invalid JSON in response body: ${e.message}`;\n    body = null;\n  }\n} else if (typeof body === 'object' && body !== null) {\n  // Extract Router-specific fields\n  router_status = body.status || null;\n  router_provider = body.provider || null;\n  \n  // If body has 'answer' field (Router response format), use that as text\n  if (body.answer) {\n    text = body.answer;\n  } else if (body.text) {\n    text = body.text;\n  } else {\n    // Convert object to string representation\n    text = JSON.stringify(body, null, 2);\n  }\n}\n\n// Note: We do NOT set ok=false for body.error\n// We want to display Router responses even when status is NO_BRAIN\n// ok is strictly based on HTTP status (2xx = ok)\n\nreturn [{\n  json: {\n    ok,\n    status,\n    router_body: body,\n    router_text: text,\n    router_status,\n    router_provider,\n    error\n  }\n}];"
       },
@@ -600,7 +596,7 @@
       "main": [
         [
           {
-            "node": "Build Router Input",
+            "node": "Build Brain Input",
             "type": "main",
             "index": 0
           }
@@ -647,29 +643,29 @@
         ]
       ]
     },
-    "Build Router Input": {
+    "Build Brain Input": {
       "main": [
         [
           {
-            "node": "Call Router",
+            "node": "Execute Brain Router",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Call Router": {
+    "Execute Brain Router": {
       "main": [
         [
           {
-            "node": "Normalize Router Response",
+            "node": "Process Brain Response",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Normalize Router Response": {
+    "Process Brain Response": {
       "main": [
         [
           {

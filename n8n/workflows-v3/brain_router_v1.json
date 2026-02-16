@@ -1,0 +1,324 @@
+{
+  "name": "brain_router_v1",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize input - never throw, always return valid object\nconst input = $json || {};\n\n// Extract required fields with defaults\nconst tenant_id = (input.tenant_id || 'unknown').toString().trim();\nconst scope = (input.scope || 'unknown').toString().trim();\nconst message = (input.message || input.text || '').toString();\nconst meta = input.meta || {};\nconst brain = input.brain || {};\n\n// Validate (collect errors, don't throw)\nconst errors = [];\nif (!tenant_id || tenant_id === 'unknown') errors.push('tenant_id required');\nif (!scope || scope === 'unknown') errors.push('scope required');\nif (!message) errors.push('message required');\n\n// Determine provider (none, openai, kimi)\nlet provider = (brain.provider || 'none').toString().toLowerCase();\nif (!['openai', 'kimi', 'none'].includes(provider)) {\n  provider = 'none';\n}\n\n// Return normalized input\nreturn [{\n  json: {\n    tenant_id,\n    scope,\n    message,\n    meta,\n    brain: {\n      provider,\n      model: brain.model || 'gpt-4',\n      temperature: typeof brain.temperature === 'number' ? brain.temperature : 0.2\n    },\n    validation_errors: errors.length > 0 ? errors : null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "name": "Normalize Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.validation_errors !== null }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [650, 300],
+      "name": "Has Validation Errors?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.brain.provider }}",
+              "rightValue": "none",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [850, 300],
+      "name": "Provider is None?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\n// Return ERROR response for validation failures\nconst errorMsg = data.validation_errors.join(', ');\nreturn [{\n  json: {\n    ok: true,\n    status: 'ERROR',\n    provider: 'none',\n    slack_text: `⚠️ *Brain Router Error*\\n\\nValidation failed: ${errorMsg}`,\n    answer: `Error: ${errorMsg}`,\n    tenant_id: data.tenant_id,\n    scope: data.scope,\n    timestamp: new Date().toISOString(),\n    debug: { http: 200, error: data.validation_errors }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 500],
+      "name": "Return ERROR"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\n// Return NO_BRAIN response when provider is 'none'\nreturn [{\n  json: {\n    ok: true,\n    status: 'NO_BRAIN',\n    provider: 'none',\n    slack_text: '⚠️ *AI Brain Not Configured*\\n\\nNo LLM provider configured. Set brain.provider to \"openai\" or \"kimi\" to enable AI features.\\n\\nInput received successfully but no processing performed.',\n    answer: 'AI brain is not configured. Please configure KIMI_API_KEY or OPENAI_API_KEY.',\n    tenant_id: data.tenant_id,\n    scope: data.scope,\n    timestamp: new Date().toISOString(),\n    debug: { http: 200, error: null }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 500],
+      "name": "Return NO_BRAIN"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.brain.provider }}",
+              "rightValue": "openai",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1050, 300],
+      "name": "Provider is OpenAI?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "body": {
+          "content": "={{ JSON.stringify({ model: $input.first().json.brain.model || 'gpt-4', messages: [{ role: 'system', content: 'You are a helpful assistant. Provide concise responses.' }, { role: 'user', content: $input.first().json.message }], temperature: $input.first().json.brain.temperature || 0.2 }) }}",
+          "contentType": "raw"
+        },
+        "options": {
+          "response": {
+            "fullResponse": true
+          },
+          "timeout": 60000,
+          "ignoreHttpStatusErrors": true
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1250, 200],
+      "name": "Call OpenAI",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "OPENAI_API_KEY_HEADER"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.cn/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "body": {
+          "content": "={{ JSON.stringify({ model: $input.first().json.brain.model || 'moonshot-v1-8k', messages: [{ role: 'system', content: 'You are a helpful assistant. Provide concise responses.' }, { role: 'user', content: $input.first().json.message }], temperature: $input.first().json.brain.temperature || 0.2 }) }}",
+          "contentType": "raw"
+        },
+        "options": {
+          "response": {
+            "fullResponse": true
+          },
+          "timeout": 60000,
+          "ignoreHttpStatusErrors": true
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1250, 400],
+      "name": "Call Kimi",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "KIMI_API_KEY_HEADER"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst httpData = $input.all()[0]?.json || {};\n\n// Extract HTTP response details\nconst statusCode = httpData.statusCode || httpData.status || 0;\nconst body = httpData.body || {};\n\n// Check if successful\nif (statusCode >= 200 && statusCode < 300 && body.choices && body.choices[0]) {\n  const content = body.choices[0].message?.content || 'No response content';\n  return [{\n    json: {\n      ok: true,\n      status: 'OK',\n      provider: 'openai',\n      slack_text: content,\n      answer: content,\n      tenant_id: data.tenant_id,\n      scope: data.scope,\n      timestamp: new Date().toISOString(),\n      debug: { http: statusCode, error: null }\n    }\n  }];\n}\n\n// Error or no response\nconst errorMsg = body.error?.message || `HTTP ${statusCode} error`;\nreturn [{\n  json: {\n    ok: true,\n    status: 'ERROR',\n    provider: 'openai',\n    slack_text: `⚠️ *OpenAI Error*\\n\\n${errorMsg}`,\n    answer: errorMsg,\n    tenant_id: data.tenant_id,\n    scope: data.scope,\n    timestamp: new Date().toISOString(),\n    debug: { http: statusCode, error: body.error || errorMsg }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 200],
+      "name": "Parse OpenAI Response"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst httpData = $input.all()[0]?.json || {};\n\n// Extract HTTP response details\nconst statusCode = httpData.statusCode || httpData.status || 0;\nconst body = httpData.body || {};\n\n// Check if successful\nif (statusCode >= 200 && statusCode < 300 && body.choices && body.choices[0]) {\n  const content = body.choices[0].message?.content || 'No response content';\n  return [{\n    json: {\n      ok: true,\n      status: 'OK',\n      provider: 'kimi',\n      slack_text: content,\n      answer: content,\n      tenant_id: data.tenant_id,\n      scope: data.scope,\n      timestamp: new Date().toISOString(),\n      debug: { http: statusCode, error: null }\n    }\n  }];\n}\n\n// Error or no response\nconst errorMsg = body.error?.message || `HTTP ${statusCode} error`;\nreturn [{\n  json: {\n    ok: true,\n    status: 'ERROR',\n    provider: 'kimi',\n    slack_text: `⚠️ *Kimi Error*\\n\\n${errorMsg}`,\n    answer: errorMsg,\n    tenant_id: data.tenant_id,\n    scope: data.scope,\n    timestamp: new Date().toISOString(),\n    debug: { http: statusCode, error: body.error || errorMsg }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 400],
+      "name": "Parse Kimi Response"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Has Validation Errors?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Validation Errors?": {
+      "main": [
+        [
+          {
+            "node": "Provider is None?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return ERROR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Provider is None?": {
+      "main": [
+        [
+          {
+            "node": "Provider is OpenAI?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return NO_BRAIN",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Provider is OpenAI?": {
+      "main": [
+        [
+          {
+            "node": "Call OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call Kimi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Parse OpenAI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Kimi": {
+      "main": [
+        [
+          {
+            "node": "Parse Kimi Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": []
+}
