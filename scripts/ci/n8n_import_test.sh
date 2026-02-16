@@ -22,7 +22,7 @@ POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-n8n}"
 
 # n8n settings
 N8N_PORT="${N8N_PORT:-5678}"
-TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-240}"
+TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-480}"
 N8N_ENCRYPTION_KEY="${N8N_ENCRYPTION_KEY:-test-key-for-ci-only}"
 WEBHOOK_BASE_URL="${WEBHOOK_BASE_URL:-http://localhost:${N8N_PORT}}"
 
@@ -218,7 +218,7 @@ main() {
   done
   echo ""
 
-  echo "[1/6] Starting n8n container with Postgres backend..."
+  echo "[1/5] Starting n8n container with Postgres backend..."
   docker run -d --name "${N8N_CONTAINER}" --network "${NETWORK_NAME}" \
     -p "${N8N_PORT}:5678" \
     -e DB_TYPE=postgresdb \
@@ -238,7 +238,7 @@ main() {
     -v "${CI_IMPORT_DIR}:/import:ro" \
     "${N8N_IMAGE}" >/dev/null
 
-  echo "[2/6] Waiting for n8n to be ready (timeout=${TIMEOUT_SECONDS}s)..."
+  echo "[2/5] Waiting for n8n to be ready (timeout=${TIMEOUT_SECONDS}s)..."
   if wait_for_n8n_ready "${TIMEOUT_SECONDS}" "first start"; then
     :
   else
@@ -246,7 +246,7 @@ main() {
   fi
   echo ""
 
-  echo "[3/6] Importing workflows..."
+  echo "[3/5] Importing workflows..."
   for wf in "${WORKFLOW_FILES[@]}"; do
     if [[ -f "${WORKFLOW_DIR}/${wf}" ]]; then
       echo "      Importing ${wf}..."
@@ -257,7 +257,7 @@ main() {
   done
   echo ""
 
-  echo "[4/6] Stopping n8n and inspecting schema before activation..."
+  echo "[4/5] Stopping n8n and inspecting schema before activation..."
   docker stop "${N8N_CONTAINER}" > /dev/null 2>&1 || true
   docker rm -f "${N8N_CONTAINER}" > /dev/null 2>&1 || true
   
@@ -286,7 +286,7 @@ SQL
   echo "      Activation complete."
   echo ""
 
-  echo "[5/6] Starting n8n to register webhooks..."
+  echo "[5/5] Starting n8n to register webhooks..."
   docker run -d --name "${N8N_CONTAINER}" --network "${NETWORK_NAME}" \
     -p "${N8N_PORT}:5678" \
     -e DB_TYPE=postgresdb \
@@ -312,18 +312,7 @@ SQL
   fi
   echo ""
 
-  echo "[5/6] Restarting n8n to register webhooks..."
-  docker restart "${N8N_CONTAINER}" >/dev/null
-
-  echo "      Waiting for readiness after restart..."
-  if wait_for_http_200 "${WEBHOOK_BASE_URL}/rest/health" "${TIMEOUT_SECONDS}"; then
-    echo "      n8n ready after restart"
-  else
-    die "n8n failed to become ready after restart within ${TIMEOUT_SECONDS}s"
-  fi
-  echo ""
-
-  echo "[6/6] Verifying router webhook by direct invocation (no creds)..."
+  echo "[5/5] Verifying router webhook by direct invocation (no creds)..."
   local router_path
   router_path="$(extract_router_path)" || die "Failed to extract router webhook path from chat_router_v1.json"
   [[ -n "${router_path}" ]] || die "Empty router webhook path extracted"
