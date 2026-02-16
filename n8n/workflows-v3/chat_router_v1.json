@@ -34,7 +34,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "json": "={{ JSON.stringify($input.first().json) }}"
+        "json": "={{ $input.first().json }}"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
