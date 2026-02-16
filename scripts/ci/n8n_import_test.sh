@@ -126,7 +126,7 @@ until docker exec "$POSTGRES_CONTAINER" pg_isready -U "$POSTGRES_USER" >/dev/nul
 done
 echo "Postgres ready."
 
-echo "[1/6] Starting n8n container with CI settings..."
+echo "[1/7] Starting n8n container with CI settings..."
 docker run -d --name "$CONTAINER_NAME" \
   --link "$POSTGRES_CONTAINER":postgres \
   -p 5678:5678 \
@@ -146,7 +146,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "[2/6] Waiting for n8n to be ready (timeout=${TIMEOUT}s)..."
+echo "[2/7] Waiting for n8n to be ready (timeout=${TIMEOUT}s)..."
 READY_TIMEOUT_SECONDS=${TIMEOUT:-240}
 START_TS=$(date +%s)
 
@@ -181,7 +181,7 @@ while true; do
   sleep 2
 done
 
-echo "[3/6] Importing workflows..."
+echo "[3/7] Importing workflows..."
 
 for workflow in "${WORKFLOW_FILES[@]}"; do
   if [ -f "$WORKFLOW_DIR/$workflow" ]; then
@@ -196,11 +196,27 @@ for workflow in "${WORKFLOW_FILES[@]}"; do
   fi
 done
 
-echo "[4/6] Restarting n8n to register webhooks with Postgres..."
+echo "[4/7] Stopping n8n and activating workflows in Postgres..."
 docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
 docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
-echo "[5/6] Starting n8n to register webhooks..."
+echo "[4/7] Activating imported workflows in Postgres DB..."
+docker exec -i "$POSTGRES_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+-- Show current state
+SELECT id, name, active FROM workflow_entity
+WHERE name IN ('slack_chat_minimal_v1','Chat Router v1 (Adaptive Routing)');
+
+-- Activate
+UPDATE workflow_entity
+SET active = true, updated_at = NOW()
+WHERE name IN ('slack_chat_minimal_v1','Chat Router v1 (Adaptive Routing)');
+
+-- Verify
+SELECT id, name, active FROM workflow_entity
+WHERE name IN ('slack_chat_minimal_v1','Chat Router v1 (Adaptive Routing)');
+SQL
+
+echo "[5/7] Starting n8n to register webhooks..."
 docker run -d --name "$CONTAINER_NAME" \
   --link "$POSTGRES_CONTAINER":postgres \
   -p 5678:5678 \
@@ -215,7 +231,7 @@ docker run -d --name "$CONTAINER_NAME" \
   -v "$CI_IMPORT_DIR:/import:ro" \
   "$N8N_IMAGE" 2>&1
 
-echo "[5/6] Waiting for n8n to be ready after restart..."
+echo "[6/7] Waiting for n8n to be ready after restart..."
 READY_TIMEOUT_SECONDS=${TIMEOUT:-240}
 START_TS=$(date +%s)
 
@@ -244,7 +260,7 @@ while true; do
   sleep 2
 done
 
-echo "[6/6] Verifying router webhook by direct invocation (no creds)..."
+echo "[7/7] Verifying router webhook by direct invocation (no creds)..."
 
 # Extract router webhook path from chat_router_v1.json
 ROUTER_PATH="$(python3 -c '
@@ -292,7 +308,7 @@ fi
 
 echo "Router direct invocation OK."
 
-echo "[6/6] All tests complete!"
+echo "[7/7] All tests complete!"
 echo ""
 echo "=========================================="
 echo "✓ ALL CHECKS PASSED"
