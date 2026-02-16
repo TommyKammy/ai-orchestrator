@@ -458,7 +458,7 @@
       "name": "Post AI Summary to Slack",
       "parameters": {
         "channel": "#ai-orchestrator-test",
-        "text": "={{ `\ud83d\udce9 *New Email (Router Output)*\n\n*From:* ${$('Dedupe + Format').first().json.from}\n*Subject:* ${$('Dedupe + Format').first().json.subject}\n*Date:* ${$('Dedupe + Format').first().json.date}\n*Link:* ${$('Dedupe + Format').first().json.link}\n\n*Router:* status=${$json.router_status || 'unknown'} provider=${$json.router_provider || 'unknown'} http=${$json.status}${$json.router_status === 'NO_BRAIN' ? '\n\n\u26a0\ufe0f *Note:* LLM provider not configured yet. Set KIMI_API_KEY or OPENAI_API_KEY and restart.' : ''}\n\n*Router Response:*\n${$json.router_text || 'No response text available'}\n\n---\n*Info:* This message shows Router output even when no LLM keys are configured.` }}",
+        "text": "={{ `\ud83d\udce9 *New Email (Router Output)*\n\n*From:* ${$('Dedupe + Format').first().json.from}\n*Subject:* ${$('Dedupe + Format').first().json.subject}\n*Date:* ${$('Dedupe + Format').first().json.date}\n*Link:* ${$('Dedupe + Format').first().json.link}\n\n*Router:* status=${$json.router_status || 'unknown'} provider=${$json.router_provider || 'unknown'} http=${$json.status}\n\n*Router Response:*\n${$json.router_text || 'No response text available'}\n\n---\n*Info:* Status NO_BRAIN means LLM provider not configured. Set KIMI_API_KEY or OPENAI_API_KEY and restart.` }}",
         "options": {}
       },
       "type": "n8n-nodes-base.slack",
