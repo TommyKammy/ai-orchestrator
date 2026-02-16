@@ -375,7 +375,7 @@
       "id": "code-build-router-input",
       "name": "Build Router Input",
       "parameters": {
-        "jsCode": "// Get email data from Dedupe + Format node output\nconst email = $input.first().json;\n\n// Extract email content for the prompt\nconst from = email.from || 'Unknown';\nconst subject = email.subject || 'No Subject';\nconst date = email.date || 'Unknown';\nconst id = email.id || 'unknown';\nconst threadId = email.threadId || id;\n\n// Build prompt text for Router\n// Include instructions for output format\nconst promptText = `[Gmail Email Analysis]\n\nFrom: ${from}\nSubject: ${subject}\nDate: ${date}\nMessage ID: ${id}\n\nPlease analyze this email and provide:\n\n1. SUMMARY: A concise summary in 6 lines or less\n\n2. PRIORITY: Rate as High/Medium/Low with brief reason\n\n3. NEXT ACTIONS: Bullet points of suggested actions\n\n4. DRAFT REPLY: A polite business draft reply (in Japanese by default; if the email appears to be in English, provide English draft)\n\nPlease format your response clearly with these sections.`;\n\n// Build Router-compatible input shape\nconst routerInput = {\n  brain_enabled: true,\n  type: \"event_callback\",\n  team_id: \"gmail\",\n  event_id: `gmail-${id}`,\n  event_time: Math.floor(Date.now() / 1000),\n  event: {\n    type: \"message\",\n    text: promptText,\n    user: \"gmail\",\n    channel: \"gmail\",\n    ts: \"0\",\n    thread_ts: \"0\"\n  },\n  tenant_id: \"gmail\",\n  scope: \"email-analysis\",\n  meta: {\n    source: \"gmail\",\n    message_id: id,\n    thread_id: threadId,\n    from: from,\n    subject: subject,\n    date: date\n  }\n};\n\nreturn [{ json: routerInput }];"
+        "jsCode": "// Get email data from Dedupe + Format node output\nconst email = $input.first().json;\n\n// Extract email content for the prompt\nconst from = email.from || 'Unknown';\nconst subject = email.subject || 'No Subject';\nconst date = email.date || 'Unknown';\nconst id = email.id || 'unknown';\nconst threadId = email.threadId || id;\n\n// Build prompt text for Router\nconst promptText = `[Gmail Email Analysis]\n\nFrom: ${from}\nSubject: ${subject}\nDate: ${date}\nMessage ID: ${id}\n\nPlease analyze this email and provide:\n1. SUMMARY: A concise summary in 6 lines or less\n2. PRIORITY: Rate as High/Medium/Low with brief reason\n3. NEXT ACTIONS: Bullet points of suggested actions\n4. DRAFT REPLY: A polite business draft reply (in Japanese by default; if the email appears to be in English, provide English draft)`;\n\n// Build Router-compatible input with REQUIRED top-level fields\nconst routerInput = {\n  // REQUIRED: Router validates these fields\n  tenant_id: \"gmail\",\n  scope: \"email-analysis\",\n  message: promptText,\n  brain_enabled: false,\n  \n  // Metadata for context\n  meta: {\n    source: \"gmail\",\n    message_id: id,\n    thread_id: threadId,\n    from: from,\n    subject: subject,\n    date: date\n  }\n};\n\nreturn [{ json: routerInput }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -389,7 +389,7 @@
       "name": "Call Router",
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.ROUTER_WEBHOOK_URL }}",
+        "url": "={{ $env.ROUTER_WEBHOOK_URL || 'http://localhost:5678/webhook/chat/router-v1' }}",
         "authentication": "none",
         "sendBody": true,
         "contentType": "json",
