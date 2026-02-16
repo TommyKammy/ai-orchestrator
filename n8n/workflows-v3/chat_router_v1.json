@@ -34,7 +34,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "json": "={{ $input.first().json }}"
+        "jsCode": "const data = $input.first().json;\nreturn [{\n  json: {\n    status: data.status,\n    provider: data.provider,\n    answer: data.answer,\n    tenant_id: data.tenant_id,\n    scope: data.scope,\n    context_count: data.context_count,\n    answer_length: data.answer_length,\n    timestamp: data.timestamp\n  }\n}];"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
