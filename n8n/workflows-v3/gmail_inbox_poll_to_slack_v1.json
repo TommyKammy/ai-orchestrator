@@ -393,7 +393,7 @@
         "authentication": "none",
         "sendBody": true,
         "contentType": "json",
-        "body": "={{ JSON.stringify($input.first().json) }}",
+        "body": "={{ $input.first().json }}",
         "options": {
           "response": {
             "fullResponse": true
@@ -593,13 +593,6 @@
             "type": "main",
             "index": 0
           }
-        ],
-        [
-          {
-            "node": "Build Router Input",
-            "type": "main",
-            "index": 0
-          }
         ]
       ]
     },
@@ -607,7 +600,7 @@
       "main": [
         [
           {
-            "node": "Slack Notify",
+            "node": "Build Router Input",
             "type": "main",
             "index": 0
           }
@@ -692,6 +685,13 @@
         [
           {
             "node": "Post AI Summary to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Notify",
             "type": "main",
             "index": 0
           }
