@@ -178,6 +178,9 @@ done
 echo "[4/8] Stopping n8n to apply activation..."
 docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
+echo "Removing stopped container to avoid name conflict..."
+docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+
 echo "Activating workflows via n8n CLI (while n8n is stopped)..."
 docker run --rm \
   --entrypoint n8n \
@@ -189,6 +192,8 @@ docker run --rm \
 echo "Activation complete (applied while n8n stopped)."
 
 echo "[5/8] Starting n8n container again..."
+# Safety: ensure no container with this name exists
+docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 docker run -d --name "$CONTAINER_NAME" \
   -p 5678:5678 \
   -e N8N_BASIC_AUTH_ACTIVE=false \
