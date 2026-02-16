@@ -8,7 +8,10 @@ echo ""
 
 N8N_IMAGE="n8nio/n8n:1.74.1"
 CONTAINER_NAME="n8n-ci-test"
-N8N_DATA_VOLUME="n8n-ci-data"
+POSTGRES_CONTAINER="n8n-ci-postgres"
+POSTGRES_DB="n8n"
+POSTGRES_USER="n8n"
+POSTGRES_PASSWORD="n8n"
 WORKFLOW_DIR="${PWD}/n8n/workflows-v3"
 TIMEOUT=240
 
@@ -20,9 +23,9 @@ WORKFLOW_FILES=(
 CI_IMPORT_DIR=""
 
 cleanup() {
-  echo "[cleanup] Removing container and volume..."
+  echo "[cleanup] Removing containers..."
   docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
-  docker volume rm -f "$N8N_DATA_VOLUME" 2>/dev/null || true
+  docker rm -f "$POSTGRES_CONTAINER" 2>/dev/null || true
   if [ -n "$CI_IMPORT_DIR" ] && [ -d "$CI_IMPORT_DIR" ]; then
     rm -rf "$CI_IMPORT_DIR" 2>/dev/null || true
   fi
@@ -107,16 +110,34 @@ chmod -R a+rX "$CI_IMPORT_DIR"
 # Debug: show permissions
 ls -la "$CI_IMPORT_DIR"
 
+echo "[CI] Starting Postgres container..."
+docker rm -f "$POSTGRES_CONTAINER" 2>/dev/null || true
+docker run -d \
+  --name "$POSTGRES_CONTAINER" \
+  -e POSTGRES_DB="$POSTGRES_DB" \
+  -e POSTGRES_USER="$POSTGRES_USER" \
+  -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+  -p 5432:5432 \
+  postgres:15-alpine
+
+echo "[CI] Waiting for Postgres readiness..."
+until docker exec "$POSTGRES_CONTAINER" pg_isready -U "$POSTGRES_USER" >/dev/null 2>&1; do
+  sleep 1
+done
+echo "Postgres ready."
+
 echo "[1/6] Starting n8n container with CI settings..."
 docker run -d --name "$CONTAINER_NAME" \
+  --link "$POSTGRES_CONTAINER":postgres \
   -p 5678:5678 \
-  -e N8N_BASIC_AUTH_ACTIVE=false \
+  -e DB_TYPE=postgresdb \
+  -e DB_POSTGRESDB_HOST=postgres \
+  -e DB_POSTGRESDB_PORT=5432 \
+  -e DB_POSTGRESDB_DATABASE="$POSTGRES_DB" \
+  -e DB_POSTGRESDB_USER="$POSTGRES_USER" \
+  -e DB_POSTGRESDB_PASSWORD="$POSTGRES_PASSWORD" \
   -e N8N_DIAGNOSTICS_ENABLED=false \
   -e N8N_PERSONALIZATION_ENABLED=false \
-  -e N8N_USER_MANAGEMENT_DISABLED=true \
-  -e N8N_ENCRYPTION_KEY=test-key-for-ci-only \
-  -e SLACK_SIG_VERIFY_ENABLED=false \
-  -v "$N8N_DATA_VOLUME":/home/node/.n8n \
   -v "$CI_IMPORT_DIR:/import:ro" \
   "$N8N_IMAGE" 2>&1
 
@@ -175,45 +196,23 @@ for workflow in "${WORKFLOW_FILES[@]}"; do
   fi
 done
 
-echo "[4/6] Stopping n8n and activating workflows in SQLite (offline)..."
+echo "[4/6] Restarting n8n to register webhooks with Postgres..."
 docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
 docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
-TMP_DB_DIR="$(mktemp -d)"
-DB_HOST_PATH="$TMP_DB_DIR/database.sqlite"
-
-# Copy database.sqlite from volume to host
-docker run --rm -v "$N8N_DATA_VOLUME":/data -v "$TMP_DB_DIR":/host alpine:3.20 \
-  sh -c 'cp /data/database.sqlite /host/database.sqlite'
-
-ls -la "$DB_HOST_PATH"
-
-# Activate the most recently imported workflows (count = number of workflow files)
-WF_COUNT="${#WORKFLOW_FILES[@]}"
-sqlite3 "$DB_HOST_PATH" <<SQL
-UPDATE workflow_entity SET active=1 WHERE id IN (
-  SELECT id FROM workflow_entity ORDER BY id DESC LIMIT $WF_COUNT
-);
-SELECT id, name, active FROM workflow_entity ORDER BY id DESC LIMIT $WF_COUNT;
-SQL
-
-# Copy modified DB back into the volume
-docker run --rm -v "$N8N_DATA_VOLUME":/data -v "$TMP_DB_DIR":/host alpine:3.20 \
-  sh -c 'cp /host/database.sqlite /data/database.sqlite'
-
-rm -rf "$TMP_DB_DIR"
-echo "Offline activation complete."
-
 echo "[5/6] Starting n8n to register webhooks..."
 docker run -d --name "$CONTAINER_NAME" \
+  --link "$POSTGRES_CONTAINER":postgres \
   -p 5678:5678 \
-  -e N8N_BASIC_AUTH_ACTIVE=false \
+  -e DB_TYPE=postgresdb \
+  -e DB_POSTGRESDB_HOST=postgres \
+  -e DB_POSTGRESDB_PORT=5432 \
+  -e DB_POSTGRESDB_DATABASE="$POSTGRES_DB" \
+  -e DB_POSTGRESDB_USER="$POSTGRES_USER" \
+  -e DB_POSTGRESDB_PASSWORD="$POSTGRES_PASSWORD" \
   -e N8N_DIAGNOSTICS_ENABLED=false \
   -e N8N_PERSONALIZATION_ENABLED=false \
-  -e N8N_USER_MANAGEMENT_DISABLED=true \
-  -e N8N_ENCRYPTION_KEY=test-key-for-ci-only \
-  -e SLACK_SIG_VERIFY_ENABLED=false \
-  -v "$N8N_DATA_VOLUME":/home/node/.n8n \
+  -v "$CI_IMPORT_DIR:/import:ro" \
   "$N8N_IMAGE" 2>&1
 
 echo "[5/6] Waiting for n8n to be ready after restart..."
@@ -300,9 +299,9 @@ echo "✓ ALL CHECKS PASSED"
 echo "=========================================="
 echo ""
 echo "Summary:"
-echo "  - Container started successfully"
+echo "  - Postgres container started successfully"
+echo "  - n8n container started with Postgres backend"
 echo "  - Workflows imported"
-echo "  - Workflows activated via SQLite (offline)"
 echo "  - Container restarted (webhooks registered on startup)"
 echo "  - Router webhook executed successfully (NO_BRAIN response)"
 echo ""
