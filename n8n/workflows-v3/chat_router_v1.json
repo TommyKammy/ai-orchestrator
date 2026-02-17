@@ -7,69 +7,31 @@
         "path": "chat/router-v1",
         "responseMode": "responseNode"
       },
+      "id": "debug-webhook-1",
+      "name": "Debug Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [250, 300],
-      "webhookId": "chat-router-v1",
-      "name": "Webhook"
-    },
-    {
-      "parameters": {
-        "jsCode": "// Hardcoded safe defaults - no env var access (sandbox restriction)\nconst maxChars = 6000;\nconst maxK = 10;\n\n// Support both flat and nested body structure\nconst body = $json.body || $json;\n\n// Extract fields (be defensive, never throw)\nlet tenant_id = (body.tenant_id || '').trim();\nlet scope = (body.scope || '').trim();\nlet message = (body.message || body.text || '').toString();\n\n// Validate (collect errors, don't throw)\nlet errors = [];\nif (!tenant_id) errors.push('tenant_id required');\nif (!scope) errors.push('scope required');\nif (!message) errors.push('message required');\n\n// Truncate if needed\nif (message.length > maxChars) {\n  message = message.slice(0, maxChars);\n}\n\nlet k = parseInt(body.k || '5', 10);\nif (!Number.isFinite(k) || k < 1) k = 5;\nif (k > maxK) k = maxK;\n\n// Check for explicit brain_enabled flag\nconst brain_enabled = body.brain_enabled === true || body.brain_enabled === 'true';\n\n// Return normalized result (always valid, never throws)\nreturn [{\n  json: {\n    tenant_id,\n    scope,\n    message,\n    k,\n    brain_enabled,\n    validation_errors: errors.length > 0 ? errors : null\n  }\n}];"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 1,
-      "position": [450, 300],
-      "name": "Validate Input"
-    },
-    {
-      "parameters": {
-        "jsCode": "const data = $input.first().json;\n\n// If validation failed, return ERROR status (still ok: true for HTTP 200)\nif (data.validation_errors && data.validation_errors.length > 0) {\n  return [{\n    json: {\n      ok: true,\n      status: 'ERROR',\n      provider: 'none',\n      answer: 'Validation error: ' + data.validation_errors.join(', '),\n      slack_text: '⚠️ *Router Error*\\n\\nValidation failed: ' + data.validation_errors.join(', '),\n      tenant_id: data.tenant_id || 'unknown',\n      scope: data.scope || 'unknown',\n      context_count: 0,\n      answer_length: 0,\n      timestamp: new Date().toISOString(),\n      debug: { http: 200, error: data.validation_errors }\n    }\n  }];\n}\n\n// Always return NO_BRAIN - no env var access allowed in sandbox\n// Infrastructure is working, but no LLM provider configured\nreturn [{\n  json: {\n    ok: true,\n    status: 'NO_BRAIN',\n    provider: 'none',\n    answer: '⚠️ AI brain is not configured yet.\\n\\nPlease configure KIMI_API_KEY or OPENAI_API_KEY in .env and restart services.\\n\\n(Infra is working; only the LLM provider is missing.)',\n    slack_text: '⚠️ *AI Brain Not Configured*\\n\\nPlease configure KIMI_API_KEY or OPENAI_API_KEY in .env and restart services.\\n\\n(Infra is working; only the LLM provider is missing.)',\n    tenant_id: data.tenant_id,\n    scope: data.scope,\n    context_count: 0,\n    answer_length: 185,\n    timestamp: new Date().toISOString(),\n    debug: { http: 200, error: null }\n  }\n}];"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 1,
-      "position": [650, 300],
-      "name": "Return Response"
+      "webhookId": "chat-router-v1"
     },
     {
       "parameters": {
         "respondWith": "json",
-        "json": "{\"status\":\"NO_BRAIN\",\"provider\":\"none\",\"answer\":\"AI brain not configured\"}"
+        "json": "{\n  \"status\": \"NO_BRAIN\",\n  \"provider\": \"none\"\n}"
       },
+      "id": "debug-respond-1",
+      "name": "Debug Response",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [850, 300],
-      "name": "Respond to Webhook"
+      "position": [450, 300]
     }
   ],
   "connections": {
-    "Webhook": {
+    "Debug Webhook": {
       "main": [
         [
           {
-            "node": "Validate Input",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Validate Input": {
-      "main": [
-        [
-          {
-            "node": "Return Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Return Response": {
-      "main": [
-        [
-          {
-            "node": "Respond to Webhook",
+            "node": "Debug Response",
             "type": "main",
             "index": 0
           }
@@ -78,7 +40,9 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
   },
   "staticData": null,
   "tags": []
