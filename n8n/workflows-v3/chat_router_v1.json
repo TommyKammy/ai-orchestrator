@@ -34,7 +34,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "json": "={{ JSON.stringify($input.first().json) }}"
+        "json": "{\"status\":\"NO_BRAIN\",\"provider\":\"none\",\"answer\":\"AI brain not configured\"}"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
