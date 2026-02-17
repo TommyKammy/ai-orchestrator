@@ -159,8 +159,8 @@
       "parameters": {
         "method": "POST",
         "url": "https://api.moonshot.cn/v1/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -172,7 +172,7 @@
         },
         "sendBody": true,
         "body": {
-          "content": "={{ JSON.stringify({ model: $input.first().json.brain.model || 'moonshot-v1-8k', messages: [{ role: 'system', content: 'You are a helpful assistant. Provide concise responses.' }, { role: 'user', content: $input.first().json.message }], temperature: $input.first().json.brain.temperature || 0.2 }) }}",
+          "content": "={{ JSON.stringify({ model: $json.brain.model || 'kimi-k2.5', temperature: $json.brain.temperature ?? 0.2, messages: [{ role: 'system', content: 'You summarize messages for Slack. Be concise. Return plain text.' }, { role: 'user', content: $json.message }] }) }}",
           "contentType": "raw"
         },
         "options": {
@@ -189,7 +189,7 @@
       "name": "Call Kimi",
       "credentials": {
         "httpHeaderAuth": {
-          "name": "KIMI_API_KEY_HEADER"
+          "name": "MOONSHOT_API_KEY"
         }
       },
       "continueOnFail": true
