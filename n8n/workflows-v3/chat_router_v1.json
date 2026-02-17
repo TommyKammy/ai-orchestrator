@@ -5,33 +5,38 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "chat/router-v1",
-        "responseMode": "responseNode"
+        "responseMode": "lastNode"
       },
-      "id": "debug-webhook-1",
-      "name": "Debug Webhook",
+      "id": "webhook-1",
+      "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [250, 300],
+      "position": [
+        250,
+        300
+      ],
       "webhookId": "chat-router-v1"
     },
     {
       "parameters": {
-        "respondWith": "json",
-        "json": "{\n  \"status\": \"NO_BRAIN\",\n  \"provider\": \"none\"\n}"
+        "jsCode": "return [{\n  json: {\n    status: 'NO_BRAIN',\n    provider: 'none'\n  }\n}];"
       },
-      "id": "debug-respond-1",
-      "name": "Debug Response",
-      "type": "n8n-nodes-base.respondToWebhook",
+      "id": "code-1",
+      "name": "Return NO_BRAIN",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 1,
-      "position": [450, 300]
+      "position": [
+        450,
+        300
+      ]
     }
   ],
   "connections": {
-    "Debug Webhook": {
+    "Webhook": {
       "main": [
         [
           {
-            "node": "Debug Response",
+            "node": "Return NO_BRAIN",
             "type": "main",
             "index": 0
           }
