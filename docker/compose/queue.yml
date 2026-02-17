@@ -121,8 +121,8 @@ services:
     # Workers do not expose ports
     command: n8n worker
 
-    volumes:
-      - ai_n8n_data:/home/node/.n8n
+    # Workers run stateless - no volume mount
+    # All state stored in postgres/redis
 
     depends_on:
       - postgres
