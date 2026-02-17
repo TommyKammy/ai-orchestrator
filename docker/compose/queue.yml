@@ -1,0 +1,134 @@
+version: "3.8"
+
+# Queue Mode - Multi-node n8n setup for horizontal scaling
+# This is a FUTURE skeleton - not enabled by default
+# To enable: uncomment EXECUTIONS_MODE and QUEUE_BULL_* variables
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ai-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ai_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ai_password}
+      POSTGRES_DB: ai_memory
+    volumes:
+      - ai_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai-redis
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - ai_redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  n8n-main:
+    # Main n8n instance (web/editor + webhook processor)
+    image: n8nio/n8n:2.7.5
+    container_name: ai-n8n-main
+    restart: always
+    ports:
+      - "5678:5678"
+    environment:
+      # DB configuration (same as CE)
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ai_memory
+      DB_POSTGRESDB_USER: ai_user
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-ai_password}
+
+      # Encryption key (generate with: openssl rand -hex 32)
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+
+      # Basic auth (if needed)
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: admin
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+
+      # Host configuration
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:5678/}
+
+      # Logging
+      N8N_LOG_LEVEL: debug
+      N8N_LOG_OUTPUT: console
+
+      # Execution data retention
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
+      EXECUTIONS_DATA_PRUNE: "false"
+
+      # Timezone
+      TZ: Asia/Tokyo
+      GENERIC_TIMEZONE: Asia/Tokyo
+
+      # Proxy settings
+      N8N_PROXY_HOPS: 1
+
+      # Queue Mode (uncomment to enable)
+      # EXECUTIONS_MODE: queue
+      # QUEUE_BULL_REDIS_HOST: redis
+      # QUEUE_BULL_REDIS_PORT: 6379
+
+      # Webhook URL for load balancer (set in production)
+      # N8N_EDITOR_BASE_URL: https://your-domain.example.com/
+
+    volumes:
+      - ai_n8n_data:/home/node/.n8n
+
+    depends_on:
+      - postgres
+      - redis
+
+  n8n-worker:
+    # Worker instance (queue processor)
+    image: n8nio/n8n:2.7.5
+    container_name: ai-n8n-worker
+    restart: always
+    environment:
+      # DB configuration (same as main)
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ai_memory
+      DB_POSTGRESDB_USER: ai_user
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-ai_password}
+
+      # Encryption key (same as main)
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+
+      # Logging
+      N8N_LOG_LEVEL: debug
+      N8N_LOG_OUTPUT: console
+
+      # Timezone
+      TZ: Asia/Tokyo
+      GENERIC_TIMEZONE: Asia/Tokyo
+
+      # Queue Mode (REQUIRED for workers - uncomment to enable)
+      # EXECUTIONS_MODE: queue
+      # QUEUE_BULL_REDIS_HOST: redis
+      # QUEUE_BULL_REDIS_PORT: 6379
+
+    # Workers do not expose ports
+    command: n8n worker
+
+    volumes:
+      - ai_n8n_data:/home/node/.n8n
+
+    depends_on:
+      - postgres
+      - redis
+
+volumes:
+  ai_postgres_data:
+  ai_redis_data:
+  ai_n8n_data:

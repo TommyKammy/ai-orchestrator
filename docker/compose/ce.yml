@@ -1,0 +1,86 @@
+version: "3.8"
+
+# Community Edition (CE) - Single node n8n setup
+# This matches the current dev/CI configuration
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ai-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ai_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ai_password}
+      POSTGRES_DB: ai_memory
+    volumes:
+      - ai_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai-redis
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - ai_redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  n8n:
+    # CRITICAL: pinned version
+    image: n8nio/n8n:2.7.5
+    container_name: ai-n8n
+    restart: always
+    ports:
+      - "5678:5678"
+    environment:
+      # DB configuration (same as current compose)
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ai_memory
+      DB_POSTGRESDB_USER: ai_user
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-ai_password}
+
+      # Encryption key (generate with: openssl rand -hex 32)
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      
+      # Basic auth (if needed)
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: admin
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+
+      # Host configuration
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:5678/}
+
+      # Logging
+      N8N_LOG_LEVEL: debug
+      N8N_LOG_OUTPUT: console
+
+      # Execution data retention
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
+      EXECUTIONS_DATA_PRUNE: "false"
+      EXECUTIONS_DATA_MAX_AGE: 720
+
+      # Timezone
+      TZ: Asia/Tokyo
+      GENERIC_TIMEZONE: Asia/Tokyo
+
+      # Proxy settings
+      N8N_PROXY_HOPS: 1
+
+    volumes:
+      - ai_n8n_data:/home/node/.n8n
+
+    depends_on:
+      - postgres
+      - redis
+
+volumes:
+  ai_postgres_data:
+  ai_redis_data:
+  ai_n8n_data:

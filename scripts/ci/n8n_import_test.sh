@@ -7,7 +7,7 @@ echo "=========================================="
 echo ""
 
 # Images
-N8N_IMAGE="${N8N_IMAGE:-n8nio/n8n:1.74.1}"
+N8N_IMAGE="${N8N_IMAGE:-n8nio/n8n:2.7.5}"
 POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:15-alpine}"
 
 # Docker resources
@@ -258,12 +258,24 @@ SELECT id, name, active FROM workflow_entity ORDER BY id;
   
   echo "      Activating workflows via SQL..."
   docker exec -i "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" <<'SQL' | tee -a "$WORKLOG"
+-- Update active status
 UPDATE workflow_entity 
 SET active = true 
 WHERE id IN (
   SELECT id FROM workflow_entity ORDER BY id DESC LIMIT 2
 );
-SELECT id, name, active FROM workflow_entity WHERE active = true;
+
+-- Set activeVersionId to the latest version for each active workflow (required for n8n 2.7.5)
+UPDATE workflow_entity w
+SET "activeVersionId" = (
+  SELECT "versionId" FROM workflow_history h 
+  WHERE h."workflowId" = w.id 
+  ORDER BY h."createdAt" DESC 
+  LIMIT 1
+)
+WHERE w.active = true;
+
+SELECT id, name, active, "activeVersionId" FROM workflow_entity WHERE active = true;
 SQL
   
   echo "      Activation complete."
