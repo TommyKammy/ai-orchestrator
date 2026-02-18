@@ -10,7 +10,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Normalize input - never throw, always return valid object\nconst input = $json || {};\n\n// Extract required fields with defaults\nconst tenant_id = (input.tenant_id || 'unknown').toString().trim();\nconst scope = (input.scope || 'unknown').toString().trim();\nconst message = (input.message || input.text || '').toString();\nconst meta = input.meta || {};\nconst brain = input.brain || {};\n\n// Validate (collect errors, don't throw)\nconst errors = [];\nif (!tenant_id || tenant_id === 'unknown') errors.push('tenant_id required');\nif (!scope || scope === 'unknown') errors.push('scope required');\nif (!message) errors.push('message required');\n\n// Determine provider (none, openai, kimi)\nlet provider = (brain.provider || 'none').toString().toLowerCase();\nif (!['openai', 'kimi', 'none'].includes(provider)) {\n  provider = 'none';\n}\n\n// Return normalized input\nreturn [{\n  json: {\n    tenant_id,\n    scope,\n    message,\n    meta,\n    brain: {\n      provider,\n      model: brain.model || 'gpt-4',\n      temperature: typeof brain.temperature === 'number' ? brain.temperature : 0.2\n    },\n    validation_errors: errors.length > 0 ? errors : null\n  }\n}];"
+        "jsCode": "// Normalize input - never throw, always return valid object\nconst input = $json || {};\n\n// Extract required fields with defaults\nconst tenant_id = (input.tenant_id || 'unknown').toString().trim();\nconst scope = (input.scope || 'unknown').toString().trim();\nconst message = (input.message || input.text || '').toString();\nconst meta = input.meta || {};\nconst brain = input.brain || {};\n\n// Validate (collect errors, don't throw)\nconst errors = [];\nif (!tenant_id || tenant_id === 'unknown') errors.push('tenant_id required');\nif (!scope || scope === 'unknown') errors.push('scope required');\nif (!message) errors.push('message required');\n\n// Determine provider (gemini, openai, none) - default to gemini\nlet provider = (brain.provider || 'gemini').toString().toLowerCase();\nif (!['gemini', 'openai', 'none'].includes(provider)) {\n  provider = 'gemini'; // Treat invalid providers as gemini\n}\n\n// Set default model based on provider\nlet defaultModel = 'gemini-1.5-flash';\nif (provider === 'openai') {\n  defaultModel = 'gpt-4';\n}\n\n// Return normalized input\nreturn [{\n  json: {\n    tenant_id,\n    scope,\n    message,\n    meta,\n    brain: {\n      provider,\n      model: brain.model || defaultModel,\n      temperature: typeof brain.temperature === 'number' ? brain.temperature : 0.2\n    },\n    validation_errors: errors.length > 0 ? errors : null\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -82,7 +82,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const data = $input.first().json;\n\n// Return NO_BRAIN response when provider is 'none'\nreturn [{\n  json: {\n    ok: true,\n    status: 'NO_BRAIN',\n    provider: 'none',\n    slack_text: '⚠️ *AI Brain Not Configured*\\n\\nNo LLM provider configured. Set brain.provider to \"openai\" or \"kimi\" to enable AI features.\\n\\nInput received successfully but no processing performed.',\n    answer: 'AI brain is not configured. Please configure KIMI_API_KEY or OPENAI_API_KEY.',\n    tenant_id: data.tenant_id,\n    scope: data.scope,\n    timestamp: new Date().toISOString(),\n    debug: { http: 200, error: null }\n  }\n}];"
+        "jsCode": "const data = $input.first().json;\n\n// Return NO_BRAIN response when provider is 'none'\nreturn [{\n  json: {\n    ok: true,\n    status: 'NO_BRAIN',\n    provider: 'none',\n    slack_text: '⚠️ *AI Brain Not Configured*\\n\\nNo LLM provider configured. Set brain.provider to \"gemini\" or \"openai\" to enable AI features.\\n\\nInput received successfully but no processing performed.',\n    answer: 'AI brain is not configured. Please configure GEMINI_API_KEY or OPENAI_API_KEY.',\n    tenant_id: data.tenant_id,\n    scope: data.scope,\n    timestamp: new Date().toISOString(),\n    debug: { http: 200, error: null }\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -101,7 +101,7 @@
             {
               "id": "cond-1",
               "leftValue": "={{ $json.brain.provider }}",
-              "rightValue": "openai",
+              "rightValue": "gemini",
               "operator": {
                 "type": "string",
                 "operation": "equals"
@@ -114,7 +114,44 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [1050, 300],
-      "name": "Provider is OpenAI?"
+      "name": "Provider is Gemini?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/{{$json.brain.model || 'gemini-1.5-flash'}}:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    contents: [\n      {\n        role: 'user',\n        parts: [\n          {\n            text: 'You summarize messages for Slack. Be concise. Return plain text.\\n\\nMessage to summarize: ' + $json.message\n          }\n        ]\n      }\n    ],\n    generationConfig: {\n      temperature: $json.brain.temperature ?? 0.2,\n      maxOutputTokens: 1024\n    }\n  }\n}}",
+        "options": {
+          "response": {
+            "fullResponse": true
+          },
+          "timeout": 60000,
+          "ignoreHttpStatusErrors": true
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1250, 200],
+      "name": "Call Gemini",
+      "credentials": {
+        "googlePalmApi": {
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -133,7 +170,7 @@
         },
         "sendBody": true,
         "body": {
-          "content": "={{ JSON.stringify({ model: $input.first().json.brain.model || 'gpt-4', messages: [{ role: 'system', content: 'You are a helpful assistant. Provide concise responses.' }, { role: 'user', content: $input.first().json.message }], temperature: $input.first().json.brain.temperature || 0.2 }) }}",
+          "content": "={{ JSON.stringify({ model: $json.brain.model || 'gpt-4', messages: [{ role: 'system', content: 'You are a helpful assistant. Provide concise responses.' }, { role: 'user', content: $json.message }], temperature: $json.brain.temperature || 0.2 }) }}",
           "contentType": "raw"
         },
         "options": {
@@ -146,7 +183,7 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1250, 200],
+      "position": [1250, 400],
       "name": "Call OpenAI",
       "credentials": {
         "httpHeaderAuth": {
@@ -157,40 +194,12 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.moonshot.cn/v1/chat/completions",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{\n  {\n    model: $json.brain.model || 'kimi-k2.5',\n    temperature: $json.brain.temperature ?? 0.2,\n    messages: [\n      {\n        role: 'system',\n        content: 'You summarize messages for Slack. Be concise. Return plain text.'\n      },\n      {\n        role: 'user',\n        content: $json.message\n      }\n    ]\n  }\n}}",
-        "options": {
-          "response": {
-            "fullResponse": true
-          },
-          "timeout": 60000,
-          "ignoreHttpStatusErrors": true
-        }
+        "jsCode": "const data = $input.first().json;\nconst httpData = $input.all()[0]?.json || {};\n\n// Extract HTTP response details\nconst statusCode = httpData.statusCode || httpData.status || 0;\nconst body = httpData.body || {};\n\n// Gemini API response format: candidates[0].content.parts[0].text\nif (statusCode >= 200 && statusCode < 300 && body.candidates && body.candidates[0]) {\n  const content = body.candidates[0].content?.parts?.[0]?.text || 'No response content';\n  return [{\n    json: {\n      ok: true,\n      status: 'OK',\n      provider: 'gemini',\n      slack_text: content,\n      answer: content,\n      tenant_id: data.tenant_id,\n      scope: data.scope,\n      timestamp: new Date().toISOString(),\n      debug: { http: statusCode, error: null }\n    }\n  }];\n}\n\n// Error or no response\nconst errorMsg = body.error?.message || `HTTP ${statusCode} error`;\nreturn [{\n  json: {\n    ok: true,\n    status: 'ERROR',\n    provider: 'gemini',\n    slack_text: `⚠️ *Gemini Error*\\n\\n${errorMsg}`,\n    answer: errorMsg,\n    tenant_id: data.tenant_id,\n    scope: data.scope,\n    timestamp: new Date().toISOString(),\n    debug: { http: statusCode, error: body.error || errorMsg }\n  }\n}];"
       },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1250, 400],
-      "name": "Call Kimi",
-      "credentials": {
-        "httpHeaderAuth": {
-          "name": "MOONSHOT_API_KEY"
-        }
-      },
-      "continueOnFail": true
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 200],
+      "name": "Parse Gemini Response"
     },
     {
       "parameters": {
@@ -198,17 +207,8 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1450, 200],
-      "name": "Parse OpenAI Response"
-    },
-    {
-      "parameters": {
-        "jsCode": "const data = $input.first().json;\nconst httpData = $input.all()[0]?.json || {};\n\n// Extract HTTP response details\nconst statusCode = httpData.statusCode || httpData.status || 0;\nconst body = httpData.body || {};\n\n// Check if successful\nif (statusCode >= 200 && statusCode < 300 && body.choices && body.choices[0]) {\n  const content = body.choices[0].message?.content || 'No response content';\n  return [{\n    json: {\n      ok: true,\n      status: 'OK',\n      provider: 'kimi',\n      slack_text: content,\n      answer: content,\n      tenant_id: data.tenant_id,\n      scope: data.scope,\n      timestamp: new Date().toISOString(),\n      debug: { http: statusCode, error: null }\n    }\n  }];\n}\n\n// Error or no response\nconst errorMsg = body.error?.message || `HTTP ${statusCode} error`;\nreturn [{\n  json: {\n    ok: true,\n    status: 'ERROR',\n    provider: 'kimi',\n    slack_text: `⚠️ *Kimi Error*\\n\\n${errorMsg}`,\n    answer: errorMsg,\n    tenant_id: data.tenant_id,\n    scope: data.scope,\n    timestamp: new Date().toISOString(),\n    debug: { http: statusCode, error: body.error || errorMsg }\n  }\n}];"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
       "position": [1450, 400],
-      "name": "Parse Kimi Response"
+      "name": "Parse OpenAI Response"
     }
   ],
   "connections": {
@@ -256,7 +256,7 @@
       "main": [
         [
           {
-            "node": "Provider is OpenAI?",
+            "node": "Provider is Gemini?",
             "type": "main",
             "index": 0
           }
@@ -270,18 +270,29 @@
         ]
       ]
     },
-    "Provider is OpenAI?": {
+    "Provider is Gemini?": {
       "main": [
         [
           {
-            "node": "Call OpenAI",
+            "node": "Call Gemini",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Call Kimi",
+            "node": "Call OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Gemini": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini Response",
             "type": "main",
             "index": 0
           }
@@ -293,17 +304,6 @@
         [
           {
             "node": "Parse OpenAI Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Call Kimi": {
-      "main": [
-        [
-          {
-            "node": "Parse Kimi Response",
             "type": "main",
             "index": 0
           }
