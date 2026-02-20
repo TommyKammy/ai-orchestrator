@@ -1,0 +1,51 @@
+# Dockerfile.sandbox - Secure sandbox for code execution
+# Phase 1: Core Sandbox Infrastructure
+
+FROM python:3.11-slim-bookworm
+
+LABEL maintainer="ai-orchestrator"
+LABEL description="Isolated sandbox for AI-generated code execution"
+
+# Security: Run as non-root user
+RUN groupadd -r sandbox && useradd -r -g sandbox -s /bin/bash sandbox
+
+# Install security updates and required packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Security
+    ca-certificates \
+    # Required for numpy, pandas, etc.
+    gcc \
+    g++ \
+    libffi-dev \
+    libssl-dev \
+    # Required for matplotlib
+    libfreetype6-dev \
+    libpng-dev \
+    # Cleanup
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Install common data science packages (pre-installed for speed)
+RUN pip install --no-cache-dir \
+    numpy==1.26.4 \
+    pandas==2.2.0 \
+    matplotlib==3.8.3 \
+    seaborn==0.13.2 \
+    requests==2.31.0 \
+    && rm -rf /root/.cache/pip
+
+# Create workspace directory with proper permissions
+RUN mkdir -p /workspace /tmp/output && chown -R sandbox:sandbox /workspace /tmp/output
+
+# Switch to non-root user
+USER sandbox
+WORKDIR /workspace
+
+# Environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    MPLBACKEND=Agg \
+    HOME=/workspace
+
+# Default command
+CMD ["python", "-c", "print('Sandbox ready')"]

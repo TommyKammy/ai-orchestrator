@@ -1,0 +1,18 @@
+# Executor Service - Python Dependencies
+# Phase 1: Core Sandbox Infrastructure
+
+# Docker SDK for Python
+docker==7.1.0
+
+# Testing
+pytest==8.0.0
+pytest-asyncio==0.23.0
+pytest-timeout==2.2.0
+
+# Type hints
+typing-extensions==4.9.0
+
+# Linting and formatting (development)
+black==24.1.0
+flake8==7.0.0
+mypy==1.8.0

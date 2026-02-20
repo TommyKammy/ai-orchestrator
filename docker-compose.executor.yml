@@ -1,0 +1,96 @@
+# docker-compose.executor.yml - Docker-in-Docker Executor Service
+# Phase 1: Core Sandbox Infrastructure
+#
+# This service provides Docker-in-Docker (DinD) capabilities for spawning
+# isolated sandbox containers per task.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.executor.yml up -d executor
+
+services:
+  executor:
+    image: docker:25.0-dind
+    container_name: ai-executor-dind
+    restart: always
+    privileged: true  # Required for Docker-in-Docker
+    environment:
+      # Docker daemon configuration
+      DOCKER_TLS_CERTDIR: ""
+      DOCKER_DRIVER: overlay2
+      
+      # Logging
+      LOG_LEVEL: info
+    volumes:
+      # Mount executor code (read-only)
+      - ./executor:/workspace/executor:ro
+      
+      # Mount logs directory
+      - ./logs/executor:/logs
+      
+      # Mount Docker socket from host (optional, for host Docker access)
+      # Uncomment if you want to use host Docker instead of DinD
+      # - /var/run/docker.sock:/var/run/docker.sock
+      
+      # Persistent storage for Docker data (optional)
+      - executor-docker-data:/var/lib/docker
+    
+    ports:
+      # Executor API port
+      - "127.0.0.1:8080:8080"
+    
+    networks:
+      - ai-orchestrator
+    
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    
+    # Security options (in addition to privileged: true for DinD)
+    security_opt:
+      - no-new-privileges:false  # Required for DinD
+    
+    # Build the sandbox image on startup
+    entrypoint: |
+      sh -c "
+        # Start Docker daemon in background
+        dockerd-entrypoint.sh &
+        
+        # Wait for Docker to be ready
+        while ! docker info >/dev/null 2>&1; do
+          echo 'Waiting for Docker daemon...'
+          sleep 1
+        done
+        
+        echo 'Docker daemon ready'
+        
+        # Build sandbox image if Dockerfile exists
+        if [ -f /workspace/executor/Dockerfile.sandbox ]; then
+          echo 'Building sandbox image...'
+          docker build -t executor-sandbox:latest -f /workspace/executor/Dockerfile.sandbox /workspace/executor
+          echo 'Sandbox image built successfully'
+        fi
+        
+        # Keep container running
+        tail -f /dev/null
+      "
+
+volumes:
+  executor-docker-data:
+    driver: local
+
+networks:
+  ai-orchestrator:
+    external: true
