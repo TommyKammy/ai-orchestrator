@@ -89,6 +89,8 @@ class SessionManager:
         
         self.sessions: Dict[str, Session] = {}
         self._lock = threading.RLock()
+        self._creation_lock = threading.Lock()  # Separate lock for creation coordination
+        self._session_semaphore = threading.Semaphore(max_sessions)  # Limit concurrent creations
         self._cleanup_thread: Optional[threading.Thread] = None
         self._stop_cleanup = threading.Event()
         
@@ -122,26 +124,34 @@ class SessionManager:
         
         Returns:
             Session ID
+        
+        Raises:
+            RuntimeError: If maximum session limit reached
         """
         ttl = ttl or self.default_ttl
         
-        with self._lock:
-            # Check session limit
-            if len(self.sessions) >= self.max_sessions:
-                # Try to cleanup expired sessions first
+        # Phase 1: Acquire semaphore slot to prevent race conditions
+        # This ensures we never exceed max_sessions even with concurrent creation
+        if not self._session_semaphore.acquire(blocking=False):
+            # Try to cleanup expired sessions first
+            with self._lock:
                 self._cleanup_expired()
-                
-                if len(self.sessions) >= self.max_sessions:
-                    raise RuntimeError(
-                        f"Maximum session limit reached ({self.max_sessions}). "
-                        "Destroy existing sessions or increase limit."
-                    )
             
-            # Create sandbox
-            try:
-                sandbox = CodeSandbox(**sandbox_kwargs)
-                sandbox.create()
-                
+            # Try again after cleanup
+            if not self._session_semaphore.acquire(blocking=False):
+                raise RuntimeError(
+                    f"Maximum session limit reached ({self.max_sessions}). "
+                    "Destroy existing sessions or increase limit."
+                )
+        
+        sandbox = None
+        try:
+            # Phase 2: Create sandbox OUTSIDE the lock to avoid blocking other operations
+            sandbox = CodeSandbox(**sandbox_kwargs)
+            sandbox.create()
+            
+            # Phase 3: Register session with lock
+            with self._lock:
                 session_id = str(uuid.uuid4())[:12]
                 session = Session(
                     id=session_id,
@@ -159,10 +169,18 @@ class SessionManager:
                 logger.info(f"Session created: {session_id} (template: {template})")
                 return session_id
                 
-            except Exception as e:
-                self.metrics["errors"] += 1
-                logger.error(f"Failed to create session: {e}")
-                raise
+        except Exception as e:
+            # Release semaphore slot if creation failed
+            self._session_semaphore.release()
+            self.metrics["errors"] += 1
+            logger.error(f"Failed to create session: {e}")
+            # Cleanup sandbox if it was created
+            if sandbox:
+                try:
+                    sandbox.destroy()
+                except:
+                    pass
+            raise
     
     def get_session(self, session_id: str) -> Optional[Session]:
         """
@@ -258,6 +276,13 @@ class SessionManager:
             session.sandbox.destroy()
             del self.sessions[session_id]
             self.metrics["sessions_destroyed"] += 1
+            
+            # Release semaphore slot to allow new session creation
+            try:
+                self._session_semaphore.release()
+            except ValueError:
+                # Semaphore already at max value, ignore
+                pass
             
             logger.info(f"Session destroyed: {session_id}")
             return True
