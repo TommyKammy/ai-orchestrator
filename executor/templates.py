@@ -167,6 +167,83 @@ BUILTIN_TEMPLATES: Dict[str, SandboxTemplate] = {
         memory_limit="256m",
         cpu_quota=50000,
         timeout=30
+    ),
+    
+    # Additional language templates
+    "r-stats": SandboxTemplate(
+        name="r-stats",
+        description="R statistical computing environment",
+        base_image="r-base:4.3.0",
+        packages=[
+            "ggplot2",
+            "dplyr",
+            "tidyr",
+            "readr",
+            "purrr",
+            "tibble",
+            "stringr",
+            "forcats"
+        ],
+        setup_commands=[
+            "R -e \"install.packages(c('ggplot2', 'dplyr', 'tidyr', 'readr', 'purrr', 'tibble', 'stringr', 'forcats'), repos='http://cran.rstudio.com/')\""
+        ],
+        memory_limit="1g",
+        cpu_quota=100000,
+        timeout=60
+    ),
+    
+    "go-basic": SandboxTemplate(
+        name="go-basic",
+        description="Go programming environment",
+        base_image="golang:1.21-alpine",
+        packages=[],
+        environment_variables={
+            "GOPATH": "/go",
+            "GOCACHE": "/tmp/go-cache"
+        },
+        memory_limit="512m",
+        cpu_quota=100000,
+        timeout=30
+    ),
+    
+    "rust-basic": SandboxTemplate(
+        name="rust-basic",
+        description="Rust programming environment",
+        base_image="rust:1.75-slim",
+        packages=[],
+        environment_variables={
+            "CARGO_HOME": "/tmp/cargo",
+            "RUSTUP_HOME": "/tmp/rustup"
+        },
+        memory_limit="1g",
+        cpu_quota=100000,
+        timeout=60
+    ),
+    
+    "java-basic": SandboxTemplate(
+        name="java-basic",
+        description="Java programming environment",
+        base_image="openjdk:21-slim",
+        packages=[],
+        environment_variables={
+            "JAVA_HOME": "/usr/local/openjdk-21"
+        },
+        memory_limit="1g",
+        cpu_quota=100000,
+        timeout=45
+    ),
+    
+    "cpp-basic": SandboxTemplate(
+        name="cpp-basic",
+        description="C++ programming environment with GCC",
+        base_image="gcc:13.2",
+        packages=[],
+        setup_commands=[
+            "apt-get update && apt-get install -y cmake"
+        ],
+        memory_limit="1g",
+        cpu_quota=100000,
+        timeout=60
     )
 }
 
