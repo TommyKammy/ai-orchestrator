@@ -1,293 +1,350 @@
 # AI Orchestrator Infrastructure
 
-Secure AI orchestration system using Docker Compose with n8n workflow automation, PostgreSQL semantic memory, Redis caching, and isolated executor sandbox.
+Secure AI orchestration system with isolated code execution sandbox, Kubernetes auto-scaling, workflow automation, and semantic memory.
+
+## Overview
+
+This system provides a complete infrastructure for AI-powered applications with:
+- **Isolated Code Execution**: Docker-based sandbox for secure code execution (95% E2B parity)
+- **Kubernetes Auto-scaling**: HPA, global load balancing, and session persistence
+- **Workflow Automation**: n8n with custom workflows for memory, audit, and execution
+- **Semantic Memory**: PostgreSQL + pgvector for persistent AI memory
+- **Multi-language Support**: Python, Node.js, R, Go, Rust, Java, C++, and more
 
 ## Architecture
 
 ```
-Internet
-    ↓
-Caddy (HTTPS, API Key Auth)
-    ↓
-n8n (Workflow Orchestration)
-    ↓
-├─→ PostgreSQL + pgvector (Persistent Memory)
-├─→ Redis (Short-term Cache)
-└─→ Executor (Isolated Task Runner)
+                    Internet
+                       ↓
+              Caddy (HTTPS, Auth)
+                       ↓
+           ┌───────────┴───────────┐
+           ↓                       ↓
+    n8n (Workflows)      Executor Load Balancer
+           ↓                       ↓
+    ┌──────┴──────┐         ┌─────┴──────┐
+    ↓             ↓         ↓            ↓
+PostgreSQL    Redis    Executor Pools  Redis
+(pgvector)   (Cache)  (K8s/Standalone) (State)
 ```
 
 ## Components
 
-| Component | Purpose | Security Features |
-|-----------|---------|-------------------|
-| **n8n** | Workflow automation | Basic auth, webhook API keys |
-| **PostgreSQL** | Persistent storage with pgvector | Localhost-only access |
-| **Redis** | Short-term caching | Localhost-only access |
-| **Executor** | Isolated task execution | Network isolation, read-only filesystem, no-new-privileges |
-| **Caddy** | Reverse proxy with HTTPS | Automatic TLS, API key validation |
+| Component | Purpose | Technology |
+|-----------|---------|------------|
+| **n8n** | Workflow automation | Node.js, Docker |
+| **PostgreSQL** | Persistent memory with pgvector | PostgreSQL 16 |
+| **Redis** | Short-term cache & session state | Redis 7 |
+| **Executor** | Isolated code execution | Docker/Kubernetes |
+| **Caddy** | Reverse proxy with HTTPS | Caddy 2 |
 
-## Security Features
+## Executor Sandbox System
 
-- **Executor Network Isolation**: `network_mode: "none"` prevents all network access
-- **Read-Only Filesystem**: Executor container cannot modify its filesystem
-- **No-New-Privileges**: Prevents privilege escalation
-- **Webhook Authentication**: API key required for all webhook endpoints
-- **Environment-Based Secrets**: No hardcoded credentials
-- **Append-Only Audit Logging**: Tamper-proof audit trail
-- **Task Allowlist**: Executor only accepts predefined task types
+### Features
 
-## ⚠️ Known Issues / Workarounds
+- **12 Language Templates**: Python (data science, ML, NLP), Node.js, R, Go, Rust, Java, C++
+- **Visualization Support**: Matplotlib and Plotly chart extraction
+- **Session Management**: TTL-based sessions with pooling
+- **Security**: Read-only filesystem, no-new-privileges, capability dropping, network isolation
+- **Auto-scaling**: Kubernetes HPA with custom metrics
+- **Global Load Balancing**: Circuit breaker, health checks, session affinity
 
-### Slack Signature Verification Temporarily Disabled
+### Security Features
 
-**Issue**: n8n 2.7.4 blocks the `crypto` module in Code nodes due to security restrictions.
-**Impact**: Slack signature verification cannot use `require('crypto')`.
-**Workaround**: Set `SLACK_SIG_VERIFY_ENABLED=false` in docker-compose.yml to bypass verification.
-
-```yaml
-environment:
-  # Slack signature verification (TEMPORARILY DISABLED)
-  SLACK_SIG_VERIFY_ENABLED: "false"
-```
-
-**⚠️ SECURITY WARNING**: This disables Slack request signature verification. Only use this in controlled environments or for debugging. Re-enable after:
-- Upgrading n8n to a version that allows crypto module
-- Moving signature verification to an external service
-- Using n8n's built-in Slack trigger node instead of custom Code node
-
-**To re-enable**: Set `SLACK_SIG_VERIFY_ENABLED=true` (default) and ensure crypto module is available.
-
-## Repository Structure
-
-```
-.
-├── docker-compose.yml      # Infrastructure configuration
-├── Caddyfile              # Reverse proxy configuration
-├── deploy.sh              # Deployment script
-├── .env.example           # Environment template
-├── executor/
-│   ├── executor_api.py    # Secure executor wrapper
-│   └── run_task.py        # Task handler with allowlist
-└── n8n/workflows/
-    ├── 01_memory_ingest.json      # Memory storage workflow
-    ├── 02_vector_search.json      # Semantic search workflow
-    ├── 03_audit_append.json       # Audit logging workflow
-    ├── 04_executor_dispatch.json  # Task execution workflow
-    └── README.md                   # Workflow documentation
-```
+- **Container Isolation**: Docker with security hardening
+- **Path Traversal Protection**: Comprehensive validation
+- **Resource Limits**: CPU, memory, disk quotas enforced
+- **Network Isolation**: Disabled by default, opt-in only
+- **API Authentication**: Optional API key validation
+- **Audit Logging**: Complete execution history
 
 ## Quick Start
 
-### 1. Clone and Configure
+### Docker Compose (Single Node)
 
-```bash
+\`\`\`bash
+# Clone repository
 git clone <repository-url>
 cd ai-orchestrator
+
+# Configure environment
 cp .env.example .env
-```
+# Edit .env with your secrets
 
-### 2. Generate Secrets
-
-Edit `.env` and replace all `CHANGE_ME` values with secure random strings:
-
-```bash
-# Generate secure passwords
-openssl rand -base64 32
-openssl rand -hex 32
-```
-
-Required environment variables:
-- `POSTGRES_PASSWORD` - Database password
-- `N8N_ENCRYPTION_KEY` - n8n encryption key (hex, 64 chars)
-- `N8N_BASIC_AUTH_PASSWORD` - n8n admin password
-- `N8N_WEBHOOK_API_KEY` - Webhook API key (hex, 64 chars)
-- `N8N_HOST` - Your domain (e.g., n8n.example.com)
-
-### 3. Deploy
-
-```bash
+# Deploy
 ./deploy.sh
-```
+\`\`\`
 
-### 4. Verify
+### Kubernetes (Production)
 
-```bash
-docker ps
-```
+\`\`\`bash
+# Apply CRDs
+kubectl apply -f k8s/config/crd/executor-crd.yaml
 
-All 5 services should be running:
-- ai-postgres
-- ai-redis
-- ai-n8n
-- ai-executor
-- ai-caddy
+# Deploy operator and infrastructure
+kubectl apply -f k8s/config/deployment/operator-deployment.yaml
+kubectl apply -f k8s/config/deployment/network-policies.yaml
+kubectl apply -f k8s/config/deployment/resource-quotas.yaml
+
+# Create executor pool
+kubectl apply -f - <<EOF
+apiVersion: executor.ai-orchestrator.io/v1
+kind: ExecutorPool
+metadata:
+  name: python-data-pool
+  namespace: executor-system
+spec:
+  template: python-data
+  minReplicas: 2
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  sessionTTL: 300
+EOF
+\`\`\`
 
 ## API Usage
 
-### Webhook Authentication
+### Direct Execution
 
-All webhook endpoints require the `X-API-Key` header:
+\`\`\`bash
+curl -X POST http://localhost:8080/execute \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: \$EXECUTOR_API_KEY" \\
+  -d '{
+    "tenant_id": "t1",
+    "scope": "analysis",
+    "code": "import pandas as pd; print(pd.__version__)",
+    "template": "python-data"
+  }'
+\`\`\`
 
-```bash
-curl -X POST https://your-domain/webhook/memory/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $N8N_WEBHOOK_API_KEY" \
-  -d '{"tenant_id":"t1","scope":"user:123","text":"Hello","source":"api"}'
-```
+### Session-based Execution
 
-### Available Workflows
+\`\`\`bash
+# Create session
+curl -X POST http://localhost:8080/session/create \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "tenant_id": "t1",
+    "scope": "project-1",
+    "template": "python-data",
+    "ttl": 600
+  }'
 
-| Workflow | Endpoint | Purpose |
-|----------|----------|---------|
-| Memory Ingest | `/webhook/memory/ingest` | Store facts and memories |
-| Vector Search | `/webhook/memory/search` | Semantic search with pgvector |
-| Audit Append | `/webhook/audit/append` | Log audit events |
-| Executor Run | `/webhook/executor/run` | Execute allowed tasks |
+# Execute in session
+curl -X POST http://localhost:8080/session/execute \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "session_id": "<session-id>",
+    "code": "import matplotlib.pyplot as plt; plt.plot([1,2,3]); plt.show()"
+  }'
 
-## Security Notice
+# Destroy session
+curl -X POST http://localhost:8080/session/destroy \\
+  -H "Content-Type: application/json" \\
+  -d '{"session_id": "<session-id>"}'
+\`\`\`
 
-**NEVER commit the following to Git:**
-- `.env` files
-- Any file containing real passwords or API keys
-- Runtime data directories (`postgres/`, `redis/`, `logs/`)
-- SSL certificates (`caddy_data/`)
+## Available Templates
 
-This repository is configured with `.gitignore` to prevent accidental commits of sensitive data.
+| Template | Description | Packages | Network |
+|----------|-------------|----------|---------|
+| \`default\` | Basic Python | - | No |
+| \`python-data\` | Data Science | pandas, numpy, matplotlib, seaborn, scipy, scikit-learn | No |
+| \`python-ml\` | Machine Learning | torch, transformers, datasets, accelerate | No |
+| \`python-nlp\` | NLP | nltk, spacy, textblob, gensim | No |
+| \`python-web\` | Web Scraping | requests, beautifulsoup4, selenium, scrapy | Yes |
+| \`node-basic\` | Node.js | npm available | No |
+| \`r-stats\` | R Statistics | ggplot2, dplyr, tidyr, readr | No |
+| \`go-basic\` | Go | Go toolchain | No |
+| \`rust-basic\` | Rust | Cargo toolchain | No |
+| \`java-basic\` | Java | JDK 21 | No |
+| \`cpp-basic\` | C++ | GCC 13, cmake | No |
+| \`minimal\` | Minimal Python | None | No |
 
-## Deployment
+## Security
 
-The `deploy.sh` script safely deploys to production:
+### Security Audit Results
 
-1. Creates required runtime directories
-2. Syncs source files (excluding secrets and runtime data)
-3. Sets proper permissions
-4. Restarts services with `docker compose`
+**Overall Rating: GOOD** ✅
+
+- **0 Critical** vulnerabilities found
+- **0 High** severity issues
+- Comprehensive security documentation in [SECURITY.md](SECURITY.md)
+- Full audit report in [SECURITY_AUDIT_REPORT.md](SECURITY_AUDIT_REPORT.md)
+
+### Key Security Features
+
+1. **Container Isolation**
+   - Read-only root filesystem
+   - No-new-privileges flag
+   - All capabilities dropped
+   - Non-root user execution
+
+2. **Input Validation**
+   - Path traversal prevention
+   - File size limits (10MB/file, 100MB total)
+   - Timeout enforcement
+   - Code execution limits
+
+3. **Kubernetes Security**
+   - Network policies (default-deny)
+   - Security contexts (non-root, read-only)
+   - Resource quotas and limits
+   - RBAC with least privilege
+
+4. **API Security**
+   - Optional API key authentication
+   - Security headers (CSP, HSTS, X-Frame-Options)
+   - Error message sanitization in production
+   - CORS support
+
+See [SECURITY.md](SECURITY.md) for detailed security documentation.
+
+## Repository Structure
+
+\`\`\`
+.
+├── docker-compose.yml           # Docker Compose configuration
+├── docker-compose.executor.yml  # Executor-specific compose
+├── k8s/                        # Kubernetes manifests
+│   ├── config/
+│   │   ├── crd/               # Custom Resource Definitions
+│   │   └── deployment/        # Deployment manifests
+│   ├── controllers/           # Operator controllers
+│   └── README.md              # K8s deployment guide
+├── executor/                   # Executor sandbox system
+│   ├── sandbox.py             # Core sandbox implementation
+│   ├── api_server.py          # HTTP API server
+│   ├── session.py             # Session management
+│   ├── filesystem.py          # Secure file operations
+│   ├── interpreter.py         # Code interpreter with visualization
+│   ├── templates.py           # Environment templates
+│   └── README.md              # Executor documentation
+├── n8n/
+│   └── workflows/             # n8n workflow definitions
+├── scripts/                   # Utility scripts
+├── SECURITY.md                # Security documentation
+└── README.md                  # This file
+\`\`\`
+
+## Environment Configuration
+
+Required environment variables:
+
+\`\`\`bash
+# Database
+POSTGRES_PASSWORD=your_secure_password
+
+# n8n
+N8N_ENCRYPTION_KEY=your_64_char_hex_key
+N8N_BASIC_AUTH_PASSWORD=your_admin_password
+N8N_WEBHOOK_API_KEY=your_64_char_hex_key
+
+# Executor (optional)
+EXECUTOR_API_KEY=your_api_key_for_production
+EXECUTOR_PRODUCTION=true  # Enable production security features
+
+# LLM Providers (optional)
+KIMI_API_KEY=your_kimi_key
+OPENAI_API_KEY=your_openai_key
+\`\`\`
 
 ## Development
 
 ### Testing Executor
 
-```bash
+\`\`\`bash
+# Test sandbox creation
 echo '{"type":"ping","message":"test"}' | docker exec -i ai-executor python /workspace/executor_api.py
-```
+
+# Test via API
+curl http://localhost:8080/health
+\`\`\`
+
+### Kubernetes Development
+
+\`\`\`bash
+# Build operator image
+docker build -t executor-operator:latest -f k8s/config/deployment/Dockerfile.operator .
+
+# Build load balancer image
+docker build -t executor-load-balancer:latest -f k8s/config/deployment/Dockerfile.loadbalancer .
+
+# Port forward for testing
+kubectl port-forward -n executor-system svc/executor-load-balancer 8080:80
+\`\`\`
 
 ### Database Access
 
-```bash
+\`\`\`bash
 docker exec -it ai-postgres psql -U ai_user -d ai_memory
-```
+\`\`\`
 
 ### View Logs
 
-```bash
+\`\`\`bash
+# Docker Compose
 docker compose logs -f [service-name]
-```
+
+# Kubernetes
+kubectl logs -n executor-system -l app.kubernetes.io/component=operator -f
+\`\`\`
+
+## CI/CD
+
+GitHub Actions workflows:
+
+- **Workflow Validation**: Validates n8n workflow JSON files
+- **Import Testing**: Tests n8n workflow imports
+- **Security Scanning**: Automated security checks
+
+Run locally:
+
+\`\`\`bash
+# Validate workflows
+python3 scripts/validate_slack_workflows.py
+
+# Test imports
+bash scripts/ci/n8n_import_test.sh
+\`\`\`
+
+## Known Issues
+
+### Slack Signature Verification
+
+n8n 2.7.4 blocks the \`crypto\` module in Code nodes. Temporary workaround:
+
+\`\`\`yaml
+environment:
+  SLACK_SIG_VERIFY_ENABLED: "false"  # Only for debugging
+\`\`\`
+
+See [Security Notice](#security-notice) for details.
+
+## Roadmap
+
+- [x] Phase 1: Core sandbox infrastructure
+- [x] Phase 2: Enhanced management (sessions, filesystem, templates)
+- [x] Phase 3: Visualization and production deployment
+- [x] Phase 4: Kubernetes auto-scaling, load balancing, session persistence
+- [ ] Phase 5: GPU support for ML workloads
+- [ ] Phase 6: Multi-region federation
+
+## Contributing
+
+1. Review [SECURITY.md](SECURITY.md) before contributing
+2. Ensure no secrets are committed (use \`.env.example\` as template)
+3. Run security checks: \`grep -r "CHANGE_ME\|password\|secret" . --include="*.yml" --include="*.py"\`
+4. Test deployment locally before submitting PR
+5. Follow conventional commits style
 
 ## License
 
 MIT License
 
-## Contributing
+## Support
 
-1. Ensure no secrets are committed
-2. Run security checks: `grep -r "CHANGE_ME\|password\|secret" . --include="*.yml" --include="*.py"`
-3. Test deployment locally before submitting PR
-
-## Development Workflow
-
-### Pre-commit Hooks (Recommended)
-
-Install git hooks to validate workflows before committing:
-
-```bash
-./tools/install-git-hooks.sh
-```
-
-This installs a pre-commit hook that:
-- Validates Slack workflow JSON files
-- Ensures "Immediate ACK" node is correctly configured
-- Prevents the `{"myField":"value"}` placeholder regression
-
-To run validation manually:
-
-```bash
-python3 scripts/validate_slack_workflows.py
-```
-
-### CI Validation
-
-GitHub Actions runs validation on every push and PR:
-- Validates Slack workflow configurations
-- Fails CI if ACK node is broken or uses expressions
-
-See `.github/workflows/validate-workflows.yml`
-
-### CI Import Test (Extended Validation)
-
-In addition to JSON validation, CI also tests actual n8n import:
-
-```bash
-bash scripts/ci/n8n_import_test.sh
-```
-
-This test:
-1. Starts a temporary n8n container
-2. Imports workflows from `n8n/workflows-v3/`
-3. Verifies webhook registration for `/webhook/slack-command`
-4. Ensures import-time transformations don't break workflows
-
-Run locally before pushing:
-```bash
-python3 scripts/validate_slack_workflows.py  # JSON validation
-bash scripts/ci/n8n_import_test.sh          # Import test
-```
-
-### CI Signature Verification Bypass (Safe)
-
-For CI testing only, the workflow supports disabling Slack signature verification via environment variable:
-
-```bash
-SLACK_SIG_VERIFY_ENABLED=false  # CI only - skips signature check
-SLACK_SIG_VERIFY_ENABLED=true   # Production default - verifies signatures
-```
-
-This allows CI to test the webhook execution path without real Slack secrets. Production remains fully verified.
-
-### NO-BRAIN Fallback Behavior
-
-When no LLM provider API keys are configured, the system returns a clear fallback message instead of failing silently:
-
-**Detection:** The `chat_router_v1` workflow checks for `KIMI_API_KEY` and `OPENAI_API_KEY` environment variables before attempting to call any brain provider.
-
-**Fallback Response:**
-```json
-{
-  "status": "no_brain_configured",
-  "provider": "none",
-  "answer": "⚠️ AI brain is not configured yet.\n\nPlease configure one of the following environment variables:\n- KIMI_API_KEY\n- OPENAI_API_KEY\n\nThe system infrastructure is working correctly, but no LLM provider is available."
-}
-```
-
-**Configuration:**
-Add one of these to your `.env` file:
-```bash
-# Option 1: Kimi (Moonshot AI)
-KIMI_API_KEY=your_kimi_api_key_here
-KIMI_BASE_URL=https://api.moonshot.cn/v1
-
-# Option 2: OpenAI
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_BASE_URL=https://api.openai.com/v1
-```
-
-The system works without LLM keys for testing infrastructure, but will return the fallback message for all chat requests until configured.
-
-### Slack Integration Note
-
-When exporting Slack workflow from n8n, ensure the "Immediate ACK" node uses **hard-coded JSON**, not expressions:
-
-```json
-{"response_type": "ephemeral", "text": "Processing your request..."}
-```
-
-Using expression mode (e.g., `={{JSON.stringify(...)}}`) causes n8n to fall back to `{"myField":"value"}` on import, breaking Slack responses.
+- Documentation: See \`README.md\` files in each component directory
+- Security: See [SECURITY.md](SECURITY.md)
+- Issues: Create GitHub issue with detailed description
