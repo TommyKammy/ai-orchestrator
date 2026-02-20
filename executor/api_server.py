@@ -25,12 +25,46 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Security configuration
+API_KEY = os.environ.get('EXECUTOR_API_KEY')
+PRODUCTION_MODE = os.environ.get('EXECUTOR_PRODUCTION', 'false').lower() == 'true'
+
 # Global session manager
 session_manager = SessionManager(
     default_ttl=300,
     max_sessions=10,
     enable_cleanup_thread=True
 )
+
+
+def sanitize_error(error: str) -> str:
+    """
+    Sanitize error messages for production.
+    
+    Args:
+        error: Original error message
+    
+    Returns:
+        Sanitized error message
+    """
+    if not PRODUCTION_MODE:
+        return error
+    
+    # In production, don't expose internal details
+    error_lower = error.lower()
+    if any(sensitive in error_lower for sensitive in [
+        'password', 'secret', 'key', 'token', 'credential', 
+        '/workspace', '/tmp', 'container', 'docker'
+    ]):
+        return "Internal server error"
+    
+    # Generic error mapping
+    if 'permission' in error_lower or 'access' in error_lower:
+        return "Access denied"
+    if 'not found' in error_lower or 'no such' in error_lower:
+        return "Resource not found"
+    
+    return "Request failed"
 
 
 class ExecutorHandler(BaseHTTPRequestHandler):
@@ -40,17 +74,49 @@ class ExecutorHandler(BaseHTTPRequestHandler):
         """Override to use our logger."""
         logger.info(f"{self.address_string()} - {format % args}")
     
+    def _check_auth(self) -> bool:
+        """
+        Check API key authentication if enabled.
+        
+        Returns:
+            True if authenticated or auth not required
+        """
+        if not API_KEY:
+            return True
+        
+        auth_header = self.headers.get('X-API-Key', '')
+        if auth_header == API_KEY:
+            return True
+        
+        logger.warning(f"Authentication failed from {self.client_address[0]}")
+        return False
+    
+    def _send_security_headers(self):
+        """Send security headers with response."""
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('X-Frame-Options', 'DENY')
+        self.send_header('X-XSS-Protection', '1; mode=block')
+        self.send_header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'")
+        self.send_header('Referrer-Policy', 'strict-origin-when-cross-origin')
+        self.send_header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    
     def _send_json_response(self, data: Dict[str, Any], status: int = 200):
         """Send JSON response."""
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
+        self._send_security_headers()
         self.end_headers()
         self.wfile.write(json.dumps(data).encode('utf-8'))
     
-    def _send_error(self, message: str, status: int = 400):
+    def _send_error(self, message: str, status: int = 400, log_error: bool = True):
         """Send error response."""
-        self._send_json_response({"status": "error", "error": message}, status)
+        if log_error:
+            logger.warning(f"Error {status}: {message}")
+        
+        # Sanitize error message for production
+        sanitized = sanitize_error(message)
+        self._send_json_response({"status": "error", "error": sanitized}, status)
     
     def _read_body(self) -> Dict[str, Any]:
         """Read and parse request body."""
@@ -64,8 +130,22 @@ class ExecutorHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return {}
     
+    def do_OPTIONS(self):
+        """Handle CORS preflight requests."""
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-API-Key')
+        self._send_security_headers()
+        self.end_headers()
+    
     def do_GET(self):
         """Handle GET requests."""
+        # Check authentication
+        if not self._check_auth():
+            self._send_error("Unauthorized", 401)
+            return
+        
         parsed = urlparse(self.path)
         path = parsed.path
         
@@ -102,6 +182,11 @@ class ExecutorHandler(BaseHTTPRequestHandler):
     
     def do_POST(self):
         """Handle POST requests."""
+        # Check authentication
+        if not self._check_auth():
+            self._send_error("Unauthorized", 401)
+            return
+        
         parsed = urlparse(self.path)
         path = parsed.path
         body = self._read_body()
@@ -119,7 +204,7 @@ class ExecutorHandler(BaseHTTPRequestHandler):
                 self._send_error("Not found", 404)
         except Exception as e:
             logger.error(f"Request failed: {e}")
-            self._send_error(f"Internal error: {str(e)}", 500)
+            self._send_error(f"Internal error: {sanitize_error(str(e))}", 500)
     
     def _handle_execute(self, body: Dict[str, Any]):
         """Handle direct code execution."""
