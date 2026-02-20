@@ -14,18 +14,24 @@ This system provides a complete infrastructure for AI-powered applications with:
 ## Architecture
 
 ```
-                    Internet
-                       ↓
-              Caddy (HTTPS, Auth)
-                       ↓
-           ┌───────────┴───────────┐
-           ↓                       ↓
-    n8n (Workflows)      Executor Load Balancer
-           ↓                       ↓
-    ┌──────┴──────┐         ┌─────┴──────┐
-    ↓             ↓         ↓            ↓
-PostgreSQL    Redis    Executor Pools  Redis
-(pgvector)   (Cache)  (K8s/Standalone) (State)
+                    Internet / Clients
+                            ↓
+                    Caddy (HTTPS, Auth)
+                            ↓
+                  n8n (Webhooks/Orchestration)
+                  ├──────────────┬──────────────┬──────────────┐
+                  ↓              ↓              ↓              ↓
+         PostgreSQL+pgvector   Redis          OPA PDP    Executor API (internal)
+      (memory + audit_events) (cache)   (policy decision)         ↓
+                                                           Executor Load Balancer
+                                                                    ↓
+                                                              Executor Pools
+                                                         (K8s/Standalone Sandboxes)
+                                                                    ↓
+                                                               Redis (state)
+
+  Note: External traffic is terminated at Caddy and routed to n8n.
+  Executor endpoints are internal-only and invoked by workflows/services.
 ```
 
 ## Components
@@ -35,6 +41,7 @@ PostgreSQL    Redis    Executor Pools  Redis
 | **n8n** | Workflow automation | Node.js, Docker |
 | **PostgreSQL** | Persistent memory with pgvector | PostgreSQL 16 |
 | **Redis** | Short-term cache & session state | Redis 7 |
+| **OPA** | Central policy decision point | Open Policy Agent |
 | **Executor** | Isolated code execution | Docker/Kubernetes |
 | **Caddy** | Reverse proxy with HTTPS | Caddy 2 |
 
@@ -83,6 +90,7 @@ kubectl apply -f k8s/config/crd/executor-crd.yaml
 
 # Deploy operator and infrastructure
 kubectl apply -f k8s/config/deployment/operator-deployment.yaml
+kubectl apply -f k8s/config/deployment/opa-deployment.yaml
 kubectl apply -f k8s/config/deployment/network-policies.yaml
 kubectl apply -f k8s/config/deployment/resource-quotas.yaml
 
@@ -144,6 +152,16 @@ curl -X POST http://localhost:8080/session/destroy \\
   -H "Content-Type: application/json" \\
   -d '{"session_id": "<session-id>"}'
 \`\`\`
+
+### Metrics (Policy/Executor)
+
+```bash
+# JSON metrics
+curl http://localhost:8080/metrics
+
+# Prometheus format
+curl http://localhost:8080/metrics/prometheus
+```
 
 ## Available Templates
 
@@ -244,6 +262,10 @@ N8N_WEBHOOK_API_KEY=your_64_char_hex_key
 # Executor (optional)
 EXECUTOR_API_KEY=your_api_key_for_production
 EXECUTOR_PRODUCTION=true  # Enable production security features
+OPA_URL=http://opa:8181
+POLICY_MODE=shadow        # shadow or enforce
+POLICY_TIMEOUT_MS=800
+POLICY_FAIL_MODE=open     # open or closed
 
 # LLM Providers (optional)
 KIMI_API_KEY=your_kimi_key
