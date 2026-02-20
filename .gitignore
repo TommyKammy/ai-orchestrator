@@ -2,6 +2,20 @@
 .env.*
 !.env.example
 
+# Security files
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# Backup files
+*.backup
+*.bak
+*~
+
 # Runtime data directories
 postgres/
 redis/
