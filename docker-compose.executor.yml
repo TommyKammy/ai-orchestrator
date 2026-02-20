@@ -84,6 +84,7 @@ services:
         fi
         
         # Keep container running
+        apk add --no-cache python3 py3-pip 00260026 pip3 install docker 00260026 echo "Starting API server..." 00260026 cd /workspace/executor 00260026 python3 api_server.py 0026
         tail -f /dev/null
       "
 
