@@ -1,0 +1,45 @@
+# Resource Quotas and Limits for Executor System
+
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: executor-quota
+  namespace: executor-system
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/component: resource-quota
+spec:
+  hard:
+    requests.cpu: "20"
+    requests.memory: 40Gi
+    limits.cpu: "40"
+    limits.memory: 80Gi
+    pods: "100"
+    services: "20"
+    persistentvolumeclaims: "10"
+---
+# LimitRange for default resource constraints
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: executor-limits
+  namespace: executor-system
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/component: resource-limits
+spec:
+  limits:
+    - default:
+        cpu: "1000m"
+        memory: "1Gi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "128Mi"
+      type: Container
+    - max:
+        cpu: "4"
+        memory: "8Gi"
+      min:
+        cpu: "50m"
+        memory: "64Mi"
+      type: Container

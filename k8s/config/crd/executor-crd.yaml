@@ -1,0 +1,223 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: executorpools.executor.ai-orchestrator.io
+spec:
+  group: executor.ai-orchestrator.io
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - template
+              properties:
+                template:
+                  type: string
+                  description: "Sandbox template to use (e.g., python-data, node-basic)"
+                minReplicas:
+                  type: integer
+                  default: 1
+                  minimum: 0
+                  description: "Minimum number of executor pods"
+                maxReplicas:
+                  type: integer
+                  default: 10
+                  minimum: 1
+                  description: "Maximum number of executor pods"
+                targetCPUUtilizationPercentage:
+                  type: integer
+                  default: 70
+                  minimum: 1
+                  maximum: 100
+                  description: "Target CPU utilization for HPA"
+                targetQueueDepth:
+                  type: integer
+                  default: 10
+                  minimum: 1
+                  description: "Target queue depth per pod for custom metrics scaling"
+                resources:
+                  type: object
+                  properties:
+                    requests:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                          default: "500m"
+                        memory:
+                          type: string
+                          default: "512Mi"
+                    limits:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                          default: "1000m"
+                        memory:
+                          type: string
+                          default: "1Gi"
+                sessionTTL:
+                  type: integer
+                  default: 300
+                  description: "Session time-to-live in seconds"
+                enableMetrics:
+                  type: boolean
+                  default: true
+                  description: "Enable Prometheus metrics export"
+                networkEnabled:
+                  type: boolean
+                  default: false
+                  description: "Enable network access in sandboxes"
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: ["Pending", "Active", "Scaling", "Failed", "Terminating"]
+                currentReplicas:
+                  type: integer
+                readyReplicas:
+                  type: integer
+                queueDepth:
+                  type: integer
+                averageCPUUtilization:
+                  type: integer
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                      message:
+                        type: string
+      additionalPrinterColumns:
+        - name: Template
+          type: string
+          jsonPath: .spec.template
+        - name: Replicas
+          type: string
+          jsonPath: ".status.currentReplicas/.spec.minReplicas-.spec.maxReplicas"
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: executorpools
+    singular: executorpool
+    kind: ExecutorPool
+    shortNames:
+      - epool
+      - ep
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: executorsessions.executor.ai-orchestrator.io
+spec:
+  group: executor.ai-orchestrator.io
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - poolRef
+              properties:
+                poolRef:
+                  type: string
+                  description: "Reference to ExecutorPool name"
+                sessionId:
+                  type: string
+                  description: "Unique session identifier"
+                template:
+                  type: string
+                  description: "Override template for this session"
+                ttl:
+                  type: integer
+                  description: "Session TTL in seconds (overrides pool default)"
+                persist:
+                  type: boolean
+                  default: false
+                  description: "Whether to persist session across pod restarts"
+                metadata:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: "Additional session metadata"
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: ["Pending", "Creating", "Active", "Paused", "Migrating", "Terminated", "Failed"]
+                podName:
+                  type: string
+                  description: "Name of the pod running this session"
+                nodeName:
+                  type: string
+                  description: "Node where session is running"
+                startTime:
+                  type: string
+                  format: date-time
+                lastActivityTime:
+                  type: string
+                  format: date-time
+                expiresAt:
+                  type: string
+                  format: date-time
+                redisKey:
+                  type: string
+                  description: "Redis key for session persistence"
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                      message:
+                        type: string
+      additionalPrinterColumns:
+        - name: Pool
+          type: string
+          jsonPath: .spec.poolRef
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Pod
+          type: string
+          jsonPath: .status.podName
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: executorsessions
+    singular: executorsession
+    kind: ExecutorSession
+    shortNames:
+      - esession
+      - es

@@ -1,0 +1,85 @@
+# Prometheus ServiceMonitor for Executor metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: executor-pools
+  namespace: executor-system
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: executor
+      app.kubernetes.io/component: pool
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: executor-load-balancer
+  namespace: executor-system
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: executor
+      app.kubernetes.io/component: load-balancer
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+---
+# PrometheusRule for alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: executor-alerts
+  namespace: executor-system
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/component: monitoring
+spec:
+  groups:
+    - name: executor
+      rules:
+        - alert: ExecutorPoolDown
+          expr: up{job="executor-pools"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Executor pool {{ $labels.pool }} is down"
+            description: "Executor pool {{ $labels.pool }} has been down for more than 1 minute"
+        
+        - alert: ExecutorHighQueueDepth
+          expr: executor_queue_depth > 50
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High queue depth in executor pool {{ $labels.pool }}"
+            description: "Queue depth is {{ $value }} for pool {{ $labels.pool }}"
+        
+        - alert: ExecutorHighCPUUtilization
+          expr: executor_cpu_utilization > 90
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High CPU utilization in executor pool {{ $labels.pool }}"
+            description: "CPU utilization is {{ $value }}% for pool {{ $labels.pool }}"
+        
+        - alert: ExecutorSessionMigrationFailed
+          expr: rate(executor_session_migration_failures_total[5m]) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Session migration failures detected"
+            description: "Session migrations are failing"

@@ -1,0 +1,216 @@
+# Network Policies for Executor System
+# These policies restrict pod-to-pod communication
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: executor-system
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  # Default: deny all ingress traffic
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: executor-system
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  # Default: deny all egress traffic
+---
+# Allow operator to communicate with Kubernetes API
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-operator-api
+  namespace: executor-system
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: executor
+      app.kubernetes.io/component: operator
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow HTTPS to Kubernetes API (usually on port 443)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+---
+# Allow load balancer to communicate with executor pools
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-lb-to-pools
+  namespace: executor-system
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: executor
+      app.kubernetes.io/component: load-balancer
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow HTTP to executor pools
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: executor
+              app.kubernetes.io/component: pool
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow Redis communication
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+              app.kubernetes.io/component: cache
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+# Allow ingress to load balancer
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-lb
+  namespace: executor-system
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: executor
+      app.kubernetes.io/component: load-balancer
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow HTTP traffic from anywhere (adjust as needed)
+    - from: []
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 9090
+---
+# Allow executor pools to communicate with Redis
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pools-to-redis
+  namespace: executor-system
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: executor
+      app.kubernetes.io/component: pool
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow Redis communication
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+              app.kubernetes.io/component: cache
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow health check responses (if needed)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: executor
+              app.kubernetes.io/component: load-balancer
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# Allow Redis to receive connections
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-ingress
+  namespace: executor-system
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/component: cache
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow connections from operator
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: executor
+              app.kubernetes.io/component: operator
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow connections from load balancer
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: executor
+              app.kubernetes.io/component: load-balancer
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow connections from executor pools
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: executor
+              app.kubernetes.io/component: pool
+      ports:
+        - protocol: TCP
+          port: 6379
