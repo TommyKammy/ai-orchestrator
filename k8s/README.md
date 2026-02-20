@@ -8,43 +8,33 @@ This directory contains the Kubernetes implementation for Executor Features 2-4:
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Kubernetes Cluster                            │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │              executor-system Namespace                    │  │
-│  │                                                          │  │
-│  │  ┌─────────────────┐    ┌─────────────────────────────┐  │  │
-│  │  │  Load Balancer  │    │        Redis                │  │  │
-│  │  │  (2 replicas)   │───▶│   (Session State)           │  │  │
-│  │  │                 │    │                             │  │  │
-│  │  │ - Health checks │    │ - Session persistence       │  │  │
-│  │  │ - Geo routing   │    │ - Affinity cache            │  │  │
-│  │  │ - Circuit break │    │ - Pool registry             │  │  │
-│  │  └─────────────────┘    └─────────────────────────────┘  │  │
-│  │            │                                             │  │
-│  │            ▼                                             │  │
-│  │  ┌─────────────────┐                                     │  │
-│  │  │     Operator    │                                     │  │
-│  │  │   (1 replica)   │                                     │  │
-│  │  │                 │                                     │  │
-│  │  │ - CRD management│                                     │  │
-│  │  │ - Auto-scaling  │                                     │  │
-│  │  │ - Pod lifecycle │                                     │  │
-│  │  └─────────────────┘                                     │  │
-│  │            │                                             │  │
-│  │            ▼                                             │  │
-│  │  ┌─────────────────────────────────────────────┐        │  │
-│  │  │         Executor Pools (HPA)                 │        │  │
-│  │  │                                             │        │  │
-│  │  │  ┌─────────────┐    ┌─────────────┐        │        │  │
-│  │  │  │ python-data │    │  python-ml  │        │        │  │
-│  │  │  │  (2-20)     │    │   (1-10)    │        │        │  │
-│  │  │  └─────────────┘    └─────────────┘        │        │  │
-│  │  │                                             │        │  │
-│  │  └─────────────────────────────────────────────┘        │  │
-│  │                                                          │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+                    Internet / Clients
+                            ↓
+                    Caddy (HTTPS, Auth)
+                            ↓
+                  n8n (Webhooks/Orchestration)
+                            ↓
+                 Internal Executor API / LB Service
+                            ↓
+┌────────────────────────────────────────────────────────────────────┐
+│                    Kubernetes Cluster                              │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │             executor-system Namespace                         │  │
+│  │                                                              │  │
+│  │  OPA (PDP)   Redis (state/cache)   Operator (CRD control)    │  │
+│  │      │                │                    │                  │  │
+│  │      └────────────────┴────────────────────┘                  │  │
+│  │                           ↓                                   │  │
+│  │               Executor Load Balancer (2 replicas)             │  │
+│  │                           ↓                                   │  │
+│  │                   Executor Pools (HPA-managed)                │  │
+│  │                [python-data] [python-ml] ...                 │  │
+│  │                                                              │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────┘
+
+Note: external traffic is terminated at Caddy and routed to n8n.
+Executor services are internal and invoked by workflows/services.
 ```
 
 ## Quick Start
@@ -76,6 +66,8 @@ bash k8s/config/deployment/build-images.sh
 
 ```bash
 kubectl apply -f k8s/config/deployment/operator-deployment.yaml
+kubectl apply -f k8s/config/deployment/opa-deployment.yaml
+kubectl apply -f k8s/config/deployment/network-policies.yaml
 ```
 
 ### 5. Create Executor Pools
