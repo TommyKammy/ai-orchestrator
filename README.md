@@ -40,7 +40,7 @@ This system provides a complete infrastructure for AI-powered applications with:
 |-----------|---------|------------|
 | **n8n** | Workflow automation | Node.js, Docker |
 | **PostgreSQL** | Persistent memory with pgvector | PostgreSQL 18 |
-| **Redis** | Short-term cache & session state | Redis 7 |
+| **Redis** | Short-term cache & session state | Redis 8.6 |
 | **OPA** | Central policy decision point | Open Policy Agent |
 | **Executor** | Isolated code execution | Docker/Kubernetes |
 | **Caddy** | Reverse proxy with HTTPS | Caddy 2 |
@@ -255,6 +255,7 @@ Required environment variables:
 POSTGRES_PASSWORD=your_secure_password
 POSTGRES_IMAGE=pgvector/pgvector:pg18
 POSTGRES_PGDATA=/var/lib/postgresql/data
+REDIS_IMAGE=redis:8.6-alpine
 
 # n8n
 N8N_ENCRYPTION_KEY=your_64_char_hex_key
@@ -293,6 +294,18 @@ What the script does:
 - restarts the full stack and validates extension presence
 
 Rollback is documented in the script output and uses the preserved PG16 data directory.
+
+## Redis 8.6 Upgrade
+
+This repository now defaults to `redis:8.6-alpine`.
+
+If you are upgrading from Redis 7 with existing data, run:
+
+```bash
+./scripts/upgrade-redis-7-to-8.sh --yes
+```
+
+The script performs a consistent backup (`SAVE` + `docker cp /data`) before switching and verifies that Redis 8 is running.
 
 ## Development
 

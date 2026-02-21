@@ -19,7 +19,7 @@ services:
       - "127.0.0.1:5432:5432"
 
   redis:
-    image: redis:7-alpine
+    image: ${REDIS_IMAGE:-redis:8.6-alpine}
     container_name: ai-redis
     restart: always
     command: redis-server --appendonly yes
