@@ -34,7 +34,6 @@ WORKFLOW_FILES=(
 )
 
 CI_IMPORT_DIR=""
-POSTGRES_DATA_DIR=""
 WORKLOG="${WORKLOG:-/dev/null}"
 
 cleanup() {
@@ -45,9 +44,6 @@ cleanup() {
   docker network rm "${NETWORK_NAME}" >/dev/null 2>&1 || true
   if [[ -n "${CI_IMPORT_DIR}" && -d "${CI_IMPORT_DIR}" ]]; then
     rm -rf "${CI_IMPORT_DIR}" >/dev/null 2>&1 || true
-  fi
-  if [[ -n "${POSTGRES_DATA_DIR}" && -d "${POSTGRES_DATA_DIR}" ]]; then
-    rm -rf "${POSTGRES_DATA_DIR}" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -179,7 +175,8 @@ main() {
   echo ""
 
   echo "Creating CI import files..."
-  CI_IMPORT_DIR="$(mktemp -d)"
+  mkdir -p "${PWD}/.tmp"
+  CI_IMPORT_DIR="$(mktemp -d "${PWD}/.tmp/n8n-import.XXXXXX")"
   [[ -w "${CI_IMPORT_DIR}" ]] || die "Temp dir not writable: ${CI_IMPORT_DIR}"
 
   for wf in "${WORKFLOW_FILES[@]}"; do
@@ -199,13 +196,10 @@ main() {
   docker network create "${NETWORK_NAME}" >/dev/null
 
   echo "[CI] Starting Postgres container..."
-  # Use bind mount to ensure fresh database on each run (avoid migration conflicts)
-  POSTGRES_DATA_DIR="$(mktemp -d)"
   docker run -d --name "${POSTGRES_CONTAINER}" --network "${NETWORK_NAME}" \
     -e POSTGRES_DB="${POSTGRES_DB}" \
     -e POSTGRES_USER="${POSTGRES_USER}" \
     -e POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
-    -v "${POSTGRES_DATA_DIR}:/var/lib/postgresql/data" \
     "${POSTGRES_IMAGE}" >/dev/null
 
   echo "[CI] Waiting for Postgres readiness..."
