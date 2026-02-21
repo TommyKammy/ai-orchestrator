@@ -24,15 +24,24 @@ if (!target) {
 const targetPath = path.join(assetsDir, target);
 let content = fs.readFileSync(targetPath, "utf8");
 
-const marker = "messages: { en: en_default },";
-if (!content.includes(marker)) {
-  throw new Error("Marker not found in " + targetPath);
+const markerRegex = /messages:\s*\{\s*en:\s*en_default\s*\},/;
+const patchedRegex = /messages:\s*\{\s*en:\s*en_default\s*,\s*ja:/;
+if (!markerRegex.test(content) && !patchedRegex.test(content)) {
+  throw new Error(`Expected locale marker not found in ${targetPath}`);
 }
 
-const localeLiteral = JSON.stringify(localeData);
-const replacement = "messages: { en: en_default, ja: Object.assign({}, en_default, " + localeLiteral + ") },";
+if (patchedRegex.test(content)) {
+  console.log(`Locale already patched: ${targetPath}`);
+  process.exit(0);
+}
 
-content = content.replace(marker, replacement);
+const json = JSON.stringify(localeData)
+  .replace(/\u2028/g, "\\u2028")
+  .replace(/\u2029/g, "\\u2029");
+const replacement =
+  `messages: { en: en_default, ja: Object.assign({}, en_default, ${json}) },`;
+
+content = content.replace(markerRegex, replacement);
 fs.writeFileSync(targetPath, content, "utf8");
 
 console.log("Patched locale file: " + targetPath);
