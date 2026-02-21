@@ -1,0 +1,11 @@
+services:
+  policy_registry:
+    url: http://policy-bundle-server:8088
+
+bundles:
+  ai_policy:
+    service: policy_registry
+    resource: bundles/policy.tar.gz
+    polling:
+      min_delay_seconds: 10
+      max_delay_seconds: 30

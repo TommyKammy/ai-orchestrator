@@ -1,0 +1,132 @@
+{
+  "name": "06 Policy Registry Upsert",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "policy/registry/upsert",
+        "responseMode": "responseNode"
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [260, 300],
+      "name": "Webhook",
+      "webhookId": "policy-registry-upsert"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || {};\n\nconst workflow_id = String(body.workflow_id || '').trim();\nconst task_type = String(body.task_type || '').trim();\nconst tenant_id = String(body.tenant_id || '*').trim();\nconst scope_pattern = String(body.scope_pattern || '*').trim();\nconst enabled = body.enabled !== false;\nconst actor = String(body.actor || 'n8n-ce');\nconst constraints = body.constraints && typeof body.constraints === 'object' ? body.constraints : {};\n\nif (!workflow_id || !task_type) {\n  return [{ json: { status: 'error', message: 'workflow_id and task_type are required' } }];\n}\n\nreturn [{\n  json: { workflow_id, task_type, tenant_id, scope_pattern, enabled, actor, constraints }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300],
+      "name": "Validate Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.status === 'error' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "name": "Validation Error?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO policy_workflows (workflow_id, task_type, tenant_id, scope_pattern, constraints_jsonb, enabled) VALUES ('{{ $json.workflow_id.replace(/'/g, \"''\") }}', '{{ $json.task_type.replace(/'/g, \"''\") }}', '{{ $json.tenant_id.replace(/'/g, \"''\") }}', '{{ $json.scope_pattern.replace(/'/g, \"''\") }}', '{{ JSON.stringify($json.constraints || {}).replace(/'/g, \"''\") }}'::jsonb, {{ $json.enabled ? 'true' : 'false' }}) ON CONFLICT (workflow_id, task_type, tenant_id, scope_pattern) DO UPDATE SET constraints_jsonb = EXCLUDED.constraints_jsonb, enabled = EXCLUDED.enabled, updated_at = NOW();"
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [900, 360],
+      "name": "Upsert Workflow Rule",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO policy_publish_logs (revision_id, action, actor, result, details_jsonb) VALUES ('draft', 'upsert', '{{ $('Validate Input').first().json.actor.replace(/'/g, \"''\") }}', 'ok', '{{ JSON.stringify($('Validate Input').first().json).replace(/'/g, \"''\") }}'::jsonb);"
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1130, 360],
+      "name": "Insert Upsert Log",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ status: 'ok', action: 'upsert', workflow_id: $('Validate Input').first().json.workflow_id, task_type: $('Validate Input').first().json.task_type, enabled: $('Validate Input').first().json.enabled }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1350, 360],
+      "name": "Success Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ status: 'error', message: $json.message || 'validation_error' }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 180],
+      "name": "Error Response"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Validate Input", "type": "main", "index": 0 }]]
+    },
+    "Validate Input": {
+      "main": [[{ "node": "Validation Error?", "type": "main", "index": 0 }]]
+    },
+    "Validation Error?": {
+      "main": [
+        [{ "node": "Error Response", "type": "main", "index": 0 }],
+        [{ "node": "Upsert Workflow Rule", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upsert Workflow Rule": {
+      "main": [[{ "node": "Insert Upsert Log", "type": "main", "index": 0 }]]
+    },
+    "Insert Upsert Log": {
+      "main": [[{ "node": "Success Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "tags": ["policy", "registry", "ce"]
+}

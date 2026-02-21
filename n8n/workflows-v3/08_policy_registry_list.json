@@ -1,0 +1,58 @@
+{
+  "name": "08 Policy Registry List",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "policy/registry/list",
+        "responseMode": "responseNode"
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [260, 300],
+      "name": "Webhook",
+      "webhookId": "policy-registry-list"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT workflow_id, task_type, tenant_id, scope_pattern, constraints_jsonb, enabled, updated_at FROM policy_workflows ORDER BY updated_at DESC LIMIT 500;"
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [500, 300],
+      "name": "List Workflow Rules",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ status: 'ok', items: $input.all().map(i => i.json), count: $input.all().length }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [740, 300],
+      "name": "Success Response"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "List Workflow Rules", "type": "main", "index": 0 }]]
+    },
+    "List Workflow Rules": {
+      "main": [[{ "node": "Success Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "tags": ["policy", "registry", "ce"]
+}

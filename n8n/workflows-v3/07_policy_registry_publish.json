@@ -1,0 +1,106 @@
+{
+  "name": "07 Policy Registry Publish",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "policy/registry/publish",
+        "responseMode": "responseNode"
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [260, 300],
+      "name": "Webhook",
+      "webhookId": "policy-registry-publish"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || {};\nconst actor = String(body.actor || 'n8n-ce');\nconst notes = String(body.notes || 'publish from CE');\nconst revision_id = String(body.revision_id || ('rev-' + Date.now())).trim();\n\nreturn [{ json: { actor, notes, revision_id } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300],
+      "name": "Build Publish Payload"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH payload AS ( SELECT COALESCE(jsonb_agg(jsonb_build_object('workflow_id', workflow_id,'task_type', task_type,'tenant_id', tenant_id,'scope_pattern', scope_pattern,'constraints', constraints_jsonb,'enabled', enabled)), '[]'::jsonb) AS workflows FROM policy_workflows ) INSERT INTO policy_revisions (revision_id, status, payload_jsonb, notes, author, is_active, published_at) SELECT '{{ $json.revision_id.replace(/'/g, \"''\") }}', 'published', jsonb_build_object('workflows', payload.workflows), '{{ $json.notes.replace(/'/g, \"''\") }}', '{{ $json.actor.replace(/'/g, \"''\") }}', true, NOW() FROM payload ON CONFLICT (revision_id) DO UPDATE SET status='published', payload_jsonb=EXCLUDED.payload_jsonb, notes=EXCLUDED.notes, author=EXCLUDED.author, is_active=true, published_at=NOW(); UPDATE policy_revisions SET is_active=false WHERE revision_id <> '{{ $json.revision_id.replace(/'/g, \"''\") }}';"
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [730, 300],
+      "name": "Publish Revision",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO policy_publish_logs (revision_id, action, actor, result, details_jsonb) VALUES ('{{ $('Build Publish Payload').first().json.revision_id.replace(/'/g, \"''\") }}', 'publish', '{{ $('Build Publish Payload').first().json.actor.replace(/'/g, \"''\") }}', 'ok', '{{ JSON.stringify({ notes: $('Build Publish Payload').first().json.notes }).replace(/'/g, \"''\") }}'::jsonb);"
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [980, 300],
+      "name": "Insert Publish Log",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://policy-bundle-server:8088/healthz",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 300],
+      "name": "Check Bundle Server",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ status: 'ok', action: 'publish', revision_id: $('Build Publish Payload').first().json.revision_id, bundle_server: $('Check Bundle Server').first().json }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1420, 300],
+      "name": "Success Response"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Build Publish Payload", "type": "main", "index": 0 }]]
+    },
+    "Build Publish Payload": {
+      "main": [[{ "node": "Publish Revision", "type": "main", "index": 0 }]]
+    },
+    "Publish Revision": {
+      "main": [[{ "node": "Insert Publish Log", "type": "main", "index": 0 }]]
+    },
+    "Insert Publish Log": {
+      "main": [[{ "node": "Check Bundle Server", "type": "main", "index": 0 }]]
+    },
+    "Check Bundle Server": {
+      "main": [[{ "node": "Success Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "tags": ["policy", "registry", "ce", "publish"]
+}

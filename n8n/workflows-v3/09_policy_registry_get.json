@@ -1,0 +1,113 @@
+{
+  "name": "09 Policy Registry Get",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "policy/registry/get",
+        "responseMode": "responseNode"
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [260, 300],
+      "name": "Webhook",
+      "webhookId": "policy-registry-get"
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = $input.first().json.query || {};\nconst workflow_id = String(q.workflow_id || '').trim();\nconst task_type = String(q.task_type || '').trim();\n\nif (!workflow_id || !task_type) {\n  return [{ json: { status: 'error', message: 'workflow_id and task_type are required query params' } }];\n}\n\nreturn [{ json: { workflow_id, task_type } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300],
+      "name": "Validate Query"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.status === 'error' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "name": "Validation Error?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT workflow_id, task_type, tenant_id, scope_pattern, constraints_jsonb, enabled, created_at, updated_at FROM policy_workflows WHERE workflow_id='{{ $json.workflow_id.replace(/'/g, \"''\") }}' AND task_type='{{ $json.task_type.replace(/'/g, \"''\") }}' ORDER BY updated_at DESC LIMIT 1;"
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [900, 360],
+      "name": "Get Workflow Rule",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ status: 'ok', item: $input.first().json || null }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1130, 360],
+      "name": "Success Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ status: 'error', message: $json.message || 'validation_error' }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 180],
+      "name": "Error Response"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Validate Query", "type": "main", "index": 0 }]]
+    },
+    "Validate Query": {
+      "main": [[{ "node": "Validation Error?", "type": "main", "index": 0 }]]
+    },
+    "Validation Error?": {
+      "main": [
+        [{ "node": "Error Response", "type": "main", "index": 0 }],
+        [{ "node": "Get Workflow Rule", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Workflow Rule": {
+      "main": [[{ "node": "Success Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "tags": ["policy", "registry", "ce"]
+}

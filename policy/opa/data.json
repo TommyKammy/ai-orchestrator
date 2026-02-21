@@ -10,5 +10,11 @@
       "requires_approval": 40,
       "deny": 80
     }
+  },
+  "policy_registry": {
+    "workflows": []
+  },
+  "bundle_meta": {
+    "generated_at": ""
   }
 }
