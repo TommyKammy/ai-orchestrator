@@ -31,7 +31,7 @@ services:
 
   n8n-main:
     # Main n8n instance (web/editor + webhook processor)
-    image: n8nio/n8n:2.7.5
+    image: n8nio/n8n:2.8.3
     container_name: ai-n8n-main
     restart: always
     ports:
@@ -91,7 +91,7 @@ services:
 
   n8n-worker:
     # Worker instance (queue processor)
-    image: n8nio/n8n:2.7.5
+    image: n8nio/n8n:2.8.3
     container_name: ai-n8n-worker
     restart: always
     environment:

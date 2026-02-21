@@ -8,9 +8,9 @@ set -euo pipefail
 #   scripts/extract-n8n-ja-missing-from-mapcache.sh [image] [output]
 #
 # Example:
-#   scripts/extract-n8n-ja-missing-from-mapcache.sh ai-n8n-ja:2.7.5 n8n/locales/ja.missing.from-mapcache.json
+#   scripts/extract-n8n-ja-missing-from-mapcache.sh ai-n8n-ja:2.8.3 n8n/locales/ja.missing.from-mapcache.json
 
-IMAGE="${1:-ai-n8n-ja:2.7.5}"
+IMAGE="${1:-ai-n8n-ja:2.8.3}"
 OUTPUT="${2:-n8n/locales/ja.missing.from-mapcache.json}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 

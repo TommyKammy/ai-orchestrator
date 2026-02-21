@@ -38,7 +38,7 @@ echo "   Compose backup: $BACKUP_DIR/docker-compose.yml.backup"
 
 echo ""
 echo "6. Recording current version..."
-docker compose exec n8n n8n --version > "$BACKUP_DIR/version.txt" 2>/dev/null || echo "2.7.5" > "$BACKUP_DIR/version.txt"
+docker compose exec n8n n8n --version > "$BACKUP_DIR/version.txt" 2>/dev/null || echo "2.8.3" > "$BACKUP_DIR/version.txt"
 echo "   Current version: $(cat "$BACKUP_DIR/version.txt")"
 
 echo ""

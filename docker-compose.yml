@@ -28,7 +28,7 @@ services:
       - "127.0.0.1:6379:6379"
 
   n8n:
-    image: n8nio/n8n:2.7.5
+    image: n8nio/n8n:2.8.3
     container_name: ai-n8n
     restart: always
     environment:

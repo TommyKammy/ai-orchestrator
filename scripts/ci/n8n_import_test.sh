@@ -7,7 +7,7 @@ echo "=========================================="
 echo ""
 
 # Images
-N8N_IMAGE="${N8N_IMAGE:-n8nio/n8n:2.7.5}"
+N8N_IMAGE="${N8N_IMAGE:-n8nio/n8n:2.8.3}"
 POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:18-alpine}"
 
 # Docker resources
@@ -259,7 +259,7 @@ WHERE id IN (
   SELECT id FROM workflow_entity ORDER BY id DESC LIMIT 2
 );
 
--- Set activeVersionId to the latest version for each active workflow (required for n8n 2.7.5)
+-- Set activeVersionId to the latest version for each active workflow (required for n8n 2.8.3)
 UPDATE workflow_entity w
 SET "activeVersionId" = (
   SELECT "versionId" FROM workflow_history h 
