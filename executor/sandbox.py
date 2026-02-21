@@ -7,12 +7,12 @@ untrusted code safely.
 """
 
 import docker
-import json
 import logging
 import os
 import tarfile
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from io import BytesIO
 from typing import Dict, List, Optional, Any, Union
 
@@ -103,7 +103,7 @@ class CodeSandbox:
                 container_config["dns"] = ["8.8.8.8", "1.1.1.1"]
             
             self.container = self.client.containers.run(**container_config)
-            container_id = self.container.id if self.container else "unknown"
+            container_id = str(self.container.id) if self.container else "unknown"
             logger.info(f"Sandbox container created: {container_id[:12]}")
             
             # Wait for container to be ready
@@ -144,22 +144,20 @@ class CodeSandbox:
                 for filename, content in files.items():
                     self.write_file(filename, content)
             
-            # Prepare execution command
-            if language == "python":
-                cmd = ["python", "-c", code]
-            else:
-                raise ValueError(f"Unsupported language: {language}")
+            # Prepare execution command and source file
+            try:
+                cmd, source_path = self._prepare_execution(language, code)
+            except ValueError:
+                # Keep API behavior explicit for invalid language inputs.
+                raise
+            if source_path:
+                if not self.write_file(source_path, code):
+                    raise RuntimeError(f"Failed to write source file: {source_path}")
             
             logger.info(f"Executing code in sandbox-{self.container_id}")
             
-            # Execute with timeout
-            result = self.container.exec_run(
-                cmd,
-                workdir="/workspace",
-                user="sandbox",
-                demux=True,
-                tty=False
-            )
+            # Execute with enforced timeout
+            result = self._exec_run_with_timeout(cmd)
             
             execution_time = time.time() - start_time
             
@@ -187,6 +185,20 @@ class CodeSandbox:
             logger.info(f"Code execution completed in {execution_time:.3f}s")
             return response
             
+        except ValueError:
+            raise
+        except SandboxTimeoutError as e:
+            logger.error(f"Code execution timed out: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": str(e),
+                "execution_time": time.time() - start_time,
+                "container_id": self.container_id,
+                "language": language,
+            }
         except Exception as e:
             logger.error(f"Code execution failed: {e}")
             return {
@@ -199,6 +211,55 @@ class CodeSandbox:
                 "container_id": self.container_id,
                 "language": language
             }
+
+    def _prepare_execution(self, language: str, code: str) -> tuple[List[str], str]:
+        """Build execution command for the requested language."""
+        lang = (language or "").strip().lower()
+        if lang == "python":
+            return ["python", "main.py"], "main.py"
+        if lang in ("node", "javascript", "js"):
+            return ["node", "main.js"], "main.js"
+        if lang in ("r", "rscript"):
+            return ["Rscript", "main.R"], "main.R"
+        if lang in ("bash", "sh", "shell"):
+            return ["sh", "main.sh"], "main.sh"
+        if lang == "go":
+            return ["sh", "-lc", "go run main.go"], "main.go"
+        if lang in ("rust", "rs"):
+            return ["sh", "-lc", "rustc main.rs -O -o main && ./main"], "main.rs"
+        if lang == "java":
+            return ["sh", "-lc", "javac Main.java && java Main"], "Main.java"
+        if lang in ("cpp", "c++"):
+            return ["sh", "-lc", "g++ main.cpp -O2 -o main && ./main"], "main.cpp"
+        raise ValueError(f"Unsupported language: {language}")
+
+    def _exec_run_with_timeout(self, cmd: List[str]):
+        """Execute container command with hard timeout enforcement."""
+        if not self.container:
+            raise RuntimeError("Sandbox not created")
+
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(
+            self.container.exec_run,
+            cmd,
+            workdir="/workspace",
+            user="sandbox",
+            demux=True,
+            tty=False,
+        )
+        try:
+            return future.result(timeout=self.timeout)
+        except FuturesTimeoutError as exc:
+            future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+            try:
+                # Force-stop on timeout so runaway code cannot continue.
+                self.destroy()
+            finally:
+                pass
+            raise SandboxTimeoutError(f"Execution exceeded timeout ({self.timeout}s)") from exc
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
     
     def write_file(self, path: str, content: str) -> bool:
         """

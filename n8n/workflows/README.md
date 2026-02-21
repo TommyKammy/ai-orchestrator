@@ -72,6 +72,7 @@ This directory contains 4 workflow JSON files for the AI orchestration system.
 **Validation:**
 - Required: `actor`, `action`, `target`, `decision`
 - Decision must be: `allowed`, `denied`, or `requires_approval`
+- `payload.request_id`, `payload.policy_id`, `payload.policy_version` are required
 
 **Output:** Record stored in `audit_events` table with `payload_jsonb`
 
@@ -94,6 +95,27 @@ This directory contains 4 workflow JSON files for the AI orchestration system.
 **Behavior:** Validates input and stores episode record
 
 **Output:** Record stored in `memory_episodes` and `audit_events` tables
+
+---
+
+### 05_policy_approval.json (v3)
+**Purpose:** Approve/reject requests that returned `requires_approval`
+
+**Webhook Path:** `POST /webhook/policy/approval`
+
+**Input:**
+```json
+{
+  "request_id": "req-123",
+  "decision": "approved",
+  "approver": "alice@example.com",
+  "comment": "allowed for incident response",
+  "policy_id": "executor-core-v1",
+  "policy_version": "2026-02-20"
+}
+```
+
+**Output:** Approval decision appended to `audit_events`
 
 ---
 
@@ -155,7 +177,10 @@ The workflows use these tables:
 - `memory_vectors` - Semantic memory storage (embedding nullable)
 - `memory_facts` - Structured fact storage
 - `memory_episodes` - Executor task episodes
-- `audit_events` - Append-only audit log with payload_jsonb
+- `audit_events` - Append-only audit log with payload_jsonb and policy metadata
+
+Policy quality queries are available at:
+- `tools/policy_evaluation.sql`
 
 ---
 

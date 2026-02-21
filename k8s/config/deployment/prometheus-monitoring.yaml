@@ -35,6 +35,24 @@ spec:
       path: /metrics
       interval: 15s
 ---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: opa-policy
+  namespace: executor-system
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opa
+      app.kubernetes.io/component: policy
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+---
 # PrometheusRule for alerts
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -83,3 +101,12 @@ spec:
           annotations:
             summary: "Session migration failures detected"
             description: "Session migrations are failing"
+
+        - alert: OpaPolicyEngineDown
+          expr: sum(up{namespace="executor-system",pod=~"opa-.*"}) == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "OPA policy engine is down"
+            description: "No running OPA policy pods are being scraped for more than 2 minutes"

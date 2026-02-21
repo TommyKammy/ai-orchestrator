@@ -1,0 +1,13 @@
+{
+  "policy": {
+    "allowed_task_types": [
+      "ping",
+      "health_check",
+      "code_execution"
+    ],
+    "thresholds": {
+      "requires_approval": 40,
+      "deny": 80
+    }
+  }
+}

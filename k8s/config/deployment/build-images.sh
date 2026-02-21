@@ -12,3 +12,6 @@ docker push your-registry/executor-load-balancer:v1.0.0
 docker build -t executor-sandbox:latest -f executor/Dockerfile.sandbox executor/
 docker tag executor-sandbox:latest your-registry/executor-sandbox:v1.0.0
 docker push your-registry/executor-sandbox:v1.0.0
+
+# OPA uses upstream image; apply manifest to deploy policy engine
+kubectl apply -f opa-deployment.yaml

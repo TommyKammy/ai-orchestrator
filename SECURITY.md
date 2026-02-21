@@ -306,7 +306,23 @@ image: executor-sandbox:v1.2.3
 logger.info(f"Execution: tenant={tenant_id}, scope={scope}, size={len(code)}")
 ```
 
-### 4. Monitor Resource Usage
+### 4. Enable Policy Enforcement (OPA)
+
+Set policy controls with environment variables:
+
+```bash
+export OPA_URL="http://opa:8181"
+export POLICY_MODE="enforce"     # shadow or enforce
+export POLICY_TIMEOUT_MS="800"
+export POLICY_FAIL_MODE="closed" # open or closed
+```
+
+- `shadow`: evaluate + log decisions only
+- `enforce`: block `deny` and `requires_approval`
+- `closed`: deny requests if OPA is unavailable
+- `open`: allow requests if OPA is unavailable (temporary rollout mode)
+
+### 5. Monitor Resource Usage
 
 Set up alerts for:
 - High CPU/memory usage
@@ -314,7 +330,7 @@ Set up alerts for:
 - Unusual error rates
 - Session limit exhaustion
 
-### 5. Regular Security Audits
+### 6. Regular Security Audits
 
 Run security scanning tools:
 

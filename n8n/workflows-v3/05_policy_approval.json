@@ -1,0 +1,128 @@
+{
+  "name": "05 Policy Approval",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "policy/approval",
+        "responseMode": "responseNode"
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [260, 300],
+      "webhookId": "policy-approval",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json.body || {};\n\nif (!input.request_id || !input.decision || !input.approver) {\n  return [{ json: { status: 'error', message: 'Missing required fields: request_id, decision, approver' } }];\n}\n\nconst validDecisions = ['approved', 'rejected'];\nif (!validDecisions.includes(input.decision)) {\n  return [{ json: { status: 'error', message: 'decision must be approved or rejected' } }];\n}\n\nreturn [{\n  json: {\n    request_id: String(input.request_id),\n    decision: input.decision,\n    approver: String(input.approver),\n    comment: String(input.comment || ''),\n    approved_at: new Date().toISOString(),\n    policy_id: String(input.policy_id || 'unknown'),\n    policy_version: String(input.policy_version || 'unknown')\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [480, 300],
+      "name": "Validate Approval"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nif (data.status === 'error') {\n  return [{ json: data }];\n}\n\nconst auditDecision = data.decision === 'approved' ? 'allowed' : 'denied';\nreturn [{ json: { ...data, auditDecision } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [700, 300],
+      "name": "Prepare Audit"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "json": "={{ JSON.stringify({ status: \"error\", message: $input.first().json.message }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [920, 180],
+      "name": "Error Response"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_events (actor, action, target, decision, payload_jsonb, created_at)\nVALUES ('approver:{{ $input.first().json.approver.replace(/'/g, \"''\") }}', 'policy_approval', '{{ $input.first().json.request_id.replace(/'/g, \"''\") }}', '{{ $input.first().json.auditDecision }}', '{{ JSON.stringify({ request_id: $input.first().json.request_id, policy_id: $input.first().json.policy_id, policy_version: $input.first().json.policy_version, comment: $input.first().json.comment, approved_at: $input.first().json.approved_at, decision: $input.first().json.decision }).replace(/'/g, \"''\") }}'::jsonb, NOW());",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [920, 360],
+      "name": "Insert Approval Audit",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "json": "={{ JSON.stringify({ status: \"success\", request_id: $input.first().json.request_id, decision: $input.first().json.decision, approver: $input.first().json.approver }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1140, 360],
+      "name": "Success Response"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Approval": {
+      "main": [
+        [
+          {
+            "node": "Prepare Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Audit": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Insert Approval Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Approval Audit": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}

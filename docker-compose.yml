@@ -95,6 +95,7 @@ services:
       # Slack signature verification (TEMPORARILY DISABLED - n8n 2.7.4 blocks crypto module)
       # WARNING: Re-enable after upgrading n8n or using external verification
       SLACK_SIG_VERIFY_ENABLED: "false"
+      OPA_URL: ${OPA_URL:-http://opa:8181}
 
     volumes:
       - ./n8n:/home/node/.n8n
@@ -103,12 +104,18 @@ services:
     depends_on:
       - postgres
       - redis
+      - opa
 
   executor:
     image: python:3.11-slim
     container_name: ai-executor
     restart: always
     command: sleep infinity
+    environment:
+      OPA_URL: ${OPA_URL:-http://opa:8181}
+      POLICY_MODE: ${POLICY_MODE:-shadow}
+      POLICY_TIMEOUT_MS: ${POLICY_TIMEOUT_MS:-800}
+      POLICY_FAIL_MODE: ${POLICY_FAIL_MODE:-open}
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -138,3 +145,22 @@ services:
     dns:
       - 8.8.8.8
       - 1.1.1.1
+
+  opa:
+    image: openpolicyagent/opa:0.68.0
+    container_name: ai-opa
+    restart: always
+    command:
+      - "run"
+      - "--server"
+      - "--addr=0.0.0.0:8181"
+      - "/policy"
+    volumes:
+      - ./policy/opa:/policy:ro
+    ports:
+      - "127.0.0.1:8181:8181"
+    healthcheck:
+      test: ["CMD", "/opa", "version"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

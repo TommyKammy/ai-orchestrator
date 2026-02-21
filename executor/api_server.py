@@ -8,6 +8,8 @@ Provides HTTP API for sandbox execution that can be called from n8n.
 import json
 import logging
 import os
+import time
+import uuid
 from typing import Dict, Any, Optional
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
@@ -18,6 +20,7 @@ from executor.sandbox import CodeSandbox
 from executor.session import SessionManager
 from executor.filesystem import FileSystemManager
 from executor.templates import template_manager
+from executor.policy_client import PolicyClient
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +38,15 @@ session_manager = SessionManager(
     max_sessions=10,
     enable_cleanup_thread=True
 )
+policy_client = PolicyClient()
+POLICY_METRICS = {
+    "total": 0,
+    "allow": 0,
+    "deny": 0,
+    "requires_approval": 0,
+    "errors": 0,
+    "latency_ms_sum": 0.0,
+}
 
 
 def sanitize_error(error: str) -> str:
@@ -105,9 +117,46 @@ class ExecutorHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
+        request_id = getattr(self, "request_id", None)
+        if request_id:
+            self.send_header("X-Request-ID", request_id)
         self._send_security_headers()
+        body = json.dumps(data).encode('utf-8')
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode('utf-8'))
+        self.wfile.write(body)
+        self.wfile.flush()
+
+    def _send_text_response(self, text: str, status: int = 200, content_type: str = "text/plain; version=0.0.4"):
+        """Send plain text response (for Prometheus)."""
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        request_id = getattr(self, "request_id", None)
+        if request_id:
+            self.send_header("X-Request-ID", request_id)
+        self._send_security_headers()
+        body = text.encode("utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        self.wfile.flush()
+
+    def _prometheus_metrics(self) -> str:
+        """Build Prometheus exposition text."""
+        lines = [
+            "# HELP executor_policy_decisions_total Total number of policy decisions",
+            "# TYPE executor_policy_decisions_total counter",
+            f'executor_policy_decisions_total{{decision="allow"}} {POLICY_METRICS["allow"]}',
+            f'executor_policy_decisions_total{{decision="deny"}} {POLICY_METRICS["deny"]}',
+            f'executor_policy_decisions_total{{decision="requires_approval"}} {POLICY_METRICS["requires_approval"]}',
+            "# HELP executor_policy_eval_errors_total Total number of policy evaluation errors",
+            "# TYPE executor_policy_eval_errors_total counter",
+            f'executor_policy_eval_errors_total {POLICY_METRICS["errors"]}',
+            "# HELP executor_policy_eval_latency_ms_sum Sum of policy evaluation latency in ms",
+            "# TYPE executor_policy_eval_latency_ms_sum counter",
+            f'executor_policy_eval_latency_ms_sum {POLICY_METRICS["latency_ms_sum"]:.3f}',
+        ]
+        return "\n".join(lines) + "\n"
     
     def _send_error(self, message: str, status: int = 400, log_error: bool = True):
         """Send error response."""
@@ -135,12 +184,14 @@ class ExecutorHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-API-Key')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-API-Key, X-Request-ID')
         self._send_security_headers()
         self.end_headers()
     
     def do_GET(self):
         """Handle GET requests."""
+        self.request_id = self.headers.get("X-Request-ID", str(uuid.uuid4()))
+
         # Check authentication
         if not self._check_auth():
             self._send_error("Unauthorized", 401)
@@ -154,6 +205,28 @@ class ExecutorHandler(BaseHTTPRequestHandler):
                 "status": "healthy",
                 "service": "executor-api",
                 "version": "2.0.0"
+            })
+
+        elif path == '/capabilities':
+            self._send_json_response({
+                "status": "success",
+                "capabilities": {
+                    "interactive_execution": False,
+                    "snapshot_restore": False,
+                    "pause_resume": False,
+                    "supported_languages": [
+                        "python",
+                        "javascript",
+                        "node",
+                        "r",
+                        "bash",
+                        "sh",
+                        "go",
+                        "rust",
+                        "java",
+                        "cpp"
+                    ]
+                }
             })
         
         elif path == '/templates':
@@ -174,14 +247,22 @@ class ExecutorHandler(BaseHTTPRequestHandler):
             metrics = session_manager.get_metrics()
             self._send_json_response({
                 "status": "success",
-                "metrics": metrics
+                "metrics": {
+                    **metrics,
+                    "policy": POLICY_METRICS
+                }
             })
+
+        elif path == '/metrics/prometheus':
+            self._send_text_response(self._prometheus_metrics())
         
         else:
             self._send_error("Not found", 404)
     
     def do_POST(self):
         """Handle POST requests."""
+        self.request_id = self.headers.get("X-Request-ID", str(uuid.uuid4()))
+
         # Check authentication
         if not self._check_auth():
             self._send_error("Unauthorized", 401)
@@ -205,6 +286,63 @@ class ExecutorHandler(BaseHTTPRequestHandler):
         except Exception as e:
             logger.error(f"Request failed: {e}")
             self._send_error(f"Internal error: {sanitize_error(str(e))}", 500)
+
+    def _evaluate_policy(
+        self,
+        action: str,
+        subject: Dict[str, Any],
+        resource: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        policy_input = {
+            "subject": subject,
+            "resource": resource,
+            "action": action,
+            "context": context
+        }
+        started = time.monotonic()
+        result = policy_client.evaluate(policy_input)
+        elapsed_ms = (time.monotonic() - started) * 1000.0
+        POLICY_METRICS["total"] += 1
+        POLICY_METRICS["latency_ms_sum"] += elapsed_ms
+        decision = str(result.get("decision", "deny"))
+        if decision in ("allow", "deny", "requires_approval"):
+            POLICY_METRICS[decision] += 1
+        else:
+            POLICY_METRICS["deny"] += 1
+        if result.get("error"):
+            POLICY_METRICS["errors"] += 1
+        logger.info(
+            "Policy decision request_id=%s action=%s decision=%s risk=%s latency_ms=%.2f reasons=%s error=%s",
+            self.request_id,
+            action,
+            decision,
+            result.get("risk_score"),
+            elapsed_ms,
+            ",".join(result.get("reasons", [])),
+            result.get("error"),
+        )
+        return result
+
+    def _enforce_or_respond(self, policy_result: Dict[str, Any]) -> bool:
+        if policy_client.enforce(policy_result):
+            return True
+
+        decision = policy_result.get("decision", "deny")
+        message = "Policy denied"
+        if decision == "requires_approval":
+            message = "Policy requires approval"
+
+        self._send_json_response(
+            {
+                "status": "error",
+                "error": message,
+                "request_id": self.request_id,
+                "policy": policy_result,
+            },
+            403,
+        )
+        return False
     
     def _handle_execute(self, body: Dict[str, Any]):
         """Handle direct code execution."""
@@ -213,6 +351,7 @@ class ExecutorHandler(BaseHTTPRequestHandler):
         code = body.get('code')
         language = body.get('language', 'python')
         template = body.get('template', 'default')
+        task_type = body.get('task_type', 'code_execution')
         files = body.get('files', {})
         
         if not all([tenant_id, scope, code]):
@@ -223,6 +362,28 @@ class ExecutorHandler(BaseHTTPRequestHandler):
         
         # Get template configuration
         template_kwargs = template_manager.get_sandbox_kwargs(template)
+        policy_result = self._evaluate_policy(
+            action="executor.execute",
+            subject={
+                "tenant_id": tenant_id,
+                "scope": scope,
+                "role": "api",
+            },
+            resource={
+                "tenant_id": tenant_id,
+                "scope": scope,
+                "template": template,
+                "language": language,
+                "task_type": task_type,
+            },
+            context={
+                "request_id": self.request_id,
+                "payload_size": len(code),
+                "network_enabled": not template_kwargs.get("network_disabled", True),
+            },
+        )
+        if not self._enforce_or_respond(policy_result):
+            return
         
         try:
             with CodeSandbox(**template_kwargs) as sandbox:
@@ -238,6 +399,8 @@ class ExecutorHandler(BaseHTTPRequestHandler):
                     "status": "success" if result['exit_code'] == 0 else "error",
                     "tenant_id": tenant_id,
                     "scope": scope,
+                    "request_id": self.request_id,
+                    "policy": policy_result,
                     "result": result
                 }
                 
@@ -249,7 +412,9 @@ class ExecutorHandler(BaseHTTPRequestHandler):
                 "status": "error",
                 "tenant_id": tenant_id,
                 "scope": scope,
-                "error": str(e)
+                "request_id": self.request_id,
+                "policy": policy_result,
+                "error": sanitize_error(str(e))
             })
     
     def _handle_create_session(self, body: Dict[str, Any]):
@@ -266,6 +431,26 @@ class ExecutorHandler(BaseHTTPRequestHandler):
         try:
             # Get template configuration
             template_kwargs = template_manager.get_sandbox_kwargs(template)
+            policy_result = self._evaluate_policy(
+                action="executor.session.create",
+                subject={
+                    "tenant_id": tenant_id,
+                    "scope": scope,
+                    "role": "api",
+                },
+                resource={
+                    "tenant_id": tenant_id,
+                    "scope": scope,
+                    "template": template,
+                },
+                context={
+                    "request_id": self.request_id,
+                    "ttl": ttl,
+                    "network_enabled": not template_kwargs.get("network_disabled", True),
+                },
+            )
+            if not self._enforce_or_respond(policy_result):
+                return
             
             # Create session
             session_id = session_manager.create_session(
@@ -282,7 +467,9 @@ class ExecutorHandler(BaseHTTPRequestHandler):
                 "status": "success",
                 "session_id": session_id,
                 "template": template,
-                "ttl": ttl
+                "ttl": ttl,
+                "request_id": self.request_id,
+                "policy": policy_result,
             })
             
         except Exception as e:
@@ -317,11 +504,41 @@ class ExecutorHandler(BaseHTTPRequestHandler):
         if not all([session_id, code]):
             self._send_error("Missing required fields: session_id, code")
             return
+
+        session = session_manager.get_session(session_id)
+        scope = ""
+        tenant_id = ""
+        template = ""
+        if session:
+            scope = str(session.metadata.get("scope", ""))
+            tenant_id = str(session.metadata.get("tenant_id", ""))
+            template = session.template
+        policy_result = self._evaluate_policy(
+            action="executor.session.execute",
+            subject={
+                "tenant_id": tenant_id,
+                "scope": scope,
+                "role": "api",
+            },
+            resource={
+                "session_id": session_id,
+                "tenant_id": tenant_id,
+                "scope": scope,
+                "template": template,
+            },
+            context={
+                "request_id": self.request_id,
+                "payload_size": len(str(code)),
+            },
+        )
+        if not self._enforce_or_respond(policy_result):
+            return
         
         result = session_manager.execute_in_session(
             session_id, code, language, files
         )
-        
+        result["request_id"] = self.request_id
+        result["policy"] = policy_result
         self._send_json_response(result)
 
 

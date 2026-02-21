@@ -15,7 +15,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const input = $input.first().json.body;\n\n// Validate required fields\nif (!input.tenant_id || !input.scope || !input.task) {\n  return [{\n    json: {\n      error: 'Missing required fields: tenant_id, scope, task'\n    }\n  }];\n}\n\n// Validate task is an object\nif (typeof input.task !== 'object' || input.task === null) {\n  return [{\n    json: {\n      error: 'task must be an object'\n    }\n  }];\n}\n\n// Simulate executor output\nconst output = {\n  timestamp: new Date().toISOString(),\n  task: input.task,\n  status: 'received',\n  executor: 'ai-executor'\n};\n\nreturn [{\n  json: {\n    tenant_id: input.tenant_id,\n    scope: input.scope,\n    task: input.task,\n    output: output,\n    outcome: 'ok'\n  }\n}];"
+        "jsCode": "const input = $input.first().json.body;\n\n// Validate required fields\nif (!input.tenant_id || !input.scope || !input.task) {\n  return [{\n    json: {\n      error: 'Missing required fields: tenant_id, scope, task'\n    }\n  }];\n}\n\n// Validate task is an object\nif (typeof input.task !== 'object' || input.task === null) {\n  return [{\n    json: {\n      error: 'task must be an object'\n    }\n  }];\n}\n\nconst requestId = input.request_id || `req-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;\n\n// Simulate executor output\nconst output = {\n  timestamp: new Date().toISOString(),\n  task: input.task,\n  status: 'received',\n  executor: 'ai-executor'\n};\n\nreturn [{\n  json: {\n    tenant_id: input.tenant_id,\n    scope: input.scope,\n    task: input.task,\n    output: output,\n    outcome: 'ok',\n    request_id: requestId\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
@@ -33,8 +33,40 @@
     },
     {
       "parameters": {
+        "method": "POST",
+        "url": "={{($env.OPA_URL || 'http://opa:8181') + '/v1/data/ai/policy/result'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"input\": {\n    \"subject\": {\n      \"tenant_id\": $('Check Validation').first().json.tenant_id || 'unknown',\n      \"scope\": $('Check Validation').first().json.scope || 'unknown',\n      \"role\": \"workflow\"\n    },\n    \"resource\": {\n      \"tenant_id\": $('Check Validation').first().json.tenant_id || 'unknown',\n      \"scope\": $('Check Validation').first().json.scope || 'unknown',\n      \"task_type\": $('Check Validation').first().json.task?.type || 'code_execution',\n      \"template\": \"n8n-dispatch\"\n    },\n    \"action\": \"executor.execute\",\n    \"context\": {\n      \"request_id\": $('Check Validation').first().json.request_id,\n      \"network_enabled\": false,\n      \"payload_size\": JSON.stringify($('Check Validation').first().json.task || {}).length\n    }\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 400],
+      "name": "Evaluate Policy"
+    },
+    {
+      "parameters": {
+        "jsCode": "const validated = $('Check Validation').first().json;\n\nif (validated.status === 'error') {\n  return [{ json: validated }];\n}\n\nconst response = $input.first().json;\nconst policy = (response && typeof response.result === 'object')\n  ? response.result\n  : {\n      policy_id: 'fallback',\n      policy_version: 'fallback',\n      decision: 'deny',\n      allow: false,\n      requires_approval: true,\n      risk_score: 0,\n      reasons: ['invalid_policy_response']\n    };\n\nif (policy.decision !== 'allow') {\n  return [{\n    json: {\n      status: 'error',\n      message: policy.decision === 'requires_approval' ? 'Policy requires approval' : 'Policy denied',\n      request_id: validated.request_id,\n      policy,\n      approval: policy.decision === 'requires_approval' ? {\n        endpoint: '/webhook/policy/approval',\n        method: 'POST'\n      } : null\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ...validated,\n    policy\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1050, 400],
+      "name": "Check Policy"
+    },
+    {
+      "parameters": {
         "respondWith": "json",
-        "json": "={{ JSON.stringify({ status: \"error\", message: $input.first().json.message }) }}"
+        "json": "={{ JSON.stringify({ status: \"error\", message: $input.first().json.message, request_id: $input.first().json.request_id || null, policy: $input.first().json.policy || null, approval: $input.first().json.approval || null }) }}"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
@@ -49,7 +81,7 @@
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [850, 400],
+      "position": [1250, 400],
       "name": "Insert Episode",
       "credentials": {
         "postgres": {
@@ -61,12 +93,12 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO audit_events (actor, action, target, decision, created_at)\nVALUES ('workflow:executor_dispatch', 'executor_run', '{{ $input.first().json.scope }}', 'allowed', NOW());",
+        "query": "INSERT INTO audit_events (actor, action, target, decision, payload_jsonb, created_at)\nVALUES ('workflow:executor_dispatch', 'executor_run', '{{ $input.first().json.scope }}', '{{ $input.first().json.policy.decision || \"allowed\" }}', '{{ JSON.stringify({ request_id: $input.first().json.request_id || \"\", policy: $input.first().json.policy || {} }).replace(/'/g, \"''\") }}'::jsonb, NOW());",
         "additionalFields": {}
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [1050, 400],
+      "position": [1450, 400],
       "name": "Insert Audit",
       "credentials": {
         "postgres": {
@@ -78,11 +110,11 @@
     {
       "parameters": {
         "respondWith": "json",
-        "json": "={{ JSON.stringify({ status: \"success\", outcome: $input.first().json.outcome, output: $input.first().json.output }) }}"
+        "json": "={{ JSON.stringify({ status: \"success\", request_id: $input.first().json.request_id || null, outcome: $input.first().json.outcome, output: $input.first().json.output }) }}"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1250, 400],
+      "position": [1650, 400],
       "name": "Success Response"
     }
   ],
@@ -110,6 +142,33 @@
       ]
     },
     "Check Validation": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Evaluate Policy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Policy": {
+      "main": [
+        [
+          {
+            "node": "Check Policy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Policy": {
       "main": [
         [
           {

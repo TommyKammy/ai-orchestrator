@@ -13,10 +13,17 @@ services:
     container_name: ai-executor-dind
     restart: always
     privileged: true  # Required for Docker-in-Docker
+    read_only: false
+    network_mode: "bridge"
+    command: []
     environment:
       # Docker daemon configuration
       DOCKER_TLS_CERTDIR: ""
       DOCKER_DRIVER: overlay2
+      OPA_URL: ${OPA_URL:-http://opa:8181}
+      POLICY_MODE: ${POLICY_MODE:-shadow}
+      POLICY_TIMEOUT_MS: ${POLICY_TIMEOUT_MS:-800}
+      POLICY_FAIL_MODE: ${POLICY_FAIL_MODE:-open}
       
       # Logging
       LOG_LEVEL: info
@@ -38,11 +45,8 @@ services:
       # Executor API port
       - "127.0.0.1:8080:8080"
     
-    networks:
-      - ai-orchestrator
-    
     healthcheck:
-      test: ["CMD", "docker", "info"]
+      test: ["CMD-SHELL", "docker info >/dev/null 2>&1 && wget -q -T 2 -O- http://127.0.0.1:8080/health >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -66,7 +70,7 @@ services:
     entrypoint: |
       sh -c "
         # Start Docker daemon in background
-        dockerd-entrypoint.sh &
+        dockerd-entrypoint.sh dockerd --host=tcp://0.0.0.0:2375 --host=unix:///var/run/docker.sock &
         
         # Wait for Docker to be ready
         while ! docker info >/dev/null 2>&1; do
@@ -83,15 +87,15 @@ services:
           echo 'Sandbox image built successfully'
         fi
         
-        # Keep container running
-        apk add --no-cache python3 py3-pip 00260026 pip3 install docker 00260026 echo "Starting API server..." 00260026 cd /workspace/executor 00260026 python3 api_server.py 0026
-        tail -f /dev/null
+        # Start executor API in isolated virtualenv (PEP 668-safe)
+        apk add --no-cache python3 py3-pip
+        python3 -m venv /venv
+        /venv/bin/pip install --no-cache-dir docker
+        echo 'Starting API server...'
+        cd /workspace
+        exec /venv/bin/python -m executor.api_server
       "
 
 volumes:
   executor-docker-data:
     driver: local
-
-networks:
-  ai-orchestrator:
-    external: true

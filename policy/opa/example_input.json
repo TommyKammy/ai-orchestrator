@@ -1,0 +1,17 @@
+{
+  "subject": {
+    "tenant_id": "t1",
+    "scope": "user:123",
+    "role": "workflow"
+  },
+  "resource": {
+    "tenant_id": "t1",
+    "scope": "user:123",
+    "task_type": "ping"
+  },
+  "action": "executor.execute",
+  "context": {
+    "network_enabled": false,
+    "payload_size": 256
+  }
+}
