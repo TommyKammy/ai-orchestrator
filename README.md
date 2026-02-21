@@ -39,7 +39,7 @@ This system provides a complete infrastructure for AI-powered applications with:
 | Component | Purpose | Technology |
 |-----------|---------|------------|
 | **n8n** | Workflow automation | Node.js, Docker |
-| **PostgreSQL** | Persistent memory with pgvector | PostgreSQL 16 |
+| **PostgreSQL** | Persistent memory with pgvector | PostgreSQL 18 |
 | **Redis** | Short-term cache & session state | Redis 7 |
 | **OPA** | Central policy decision point | Open Policy Agent |
 | **Executor** | Isolated code execution | Docker/Kubernetes |
@@ -253,6 +253,8 @@ Required environment variables:
 \`\`\`bash
 # Database
 POSTGRES_PASSWORD=your_secure_password
+POSTGRES_IMAGE=pgvector/pgvector:pg18
+POSTGRES_PGDATA=/var/lib/postgresql/data
 
 # n8n
 N8N_ENCRYPTION_KEY=your_64_char_hex_key
@@ -271,6 +273,26 @@ POLICY_FAIL_MODE=open     # open or closed
 KIMI_API_KEY=your_kimi_key
 OPENAI_API_KEY=your_openai_key
 \`\`\`
+
+## PostgreSQL 18 Upgrade
+
+This repository now defaults to `pgvector/pgvector:pg18`.
+
+If you already have PostgreSQL 16 data under `./postgres`, run the upgrade script:
+
+```bash
+export POSTGRES_PASSWORD=your_secure_password
+./scripts/upgrade-postgres-16-to-18.sh --yes
+```
+
+What the script does:
+- stops write-path services
+- creates a logical backup under `backups/postgres-upgrade/<timestamp>/`
+- preserves old PG16 data directory
+- starts PostgreSQL 18 and restores data
+- restarts the full stack and validates extension presence
+
+Rollback is documented in the script output and uses the preserved PG16 data directory.
 
 ## Development
 

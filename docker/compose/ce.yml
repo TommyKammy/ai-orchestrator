@@ -5,13 +5,14 @@ version: "3.8"
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg18}
     container_name: ai-postgres
     restart: always
     environment:
       POSTGRES_USER: ai_user
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ai_password}
       POSTGRES_DB: ai_memory
+      PGDATA: ${POSTGRES_PGDATA:-/var/lib/postgresql/data}
     volumes:
       - ai_postgres_data:/var/lib/postgresql/data
     ports:

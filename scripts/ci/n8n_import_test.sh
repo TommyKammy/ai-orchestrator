@@ -8,7 +8,7 @@ echo ""
 
 # Images
 N8N_IMAGE="${N8N_IMAGE:-n8nio/n8n:2.7.5}"
-POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:15-alpine}"
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:18-alpine}"
 
 # Docker resources
 NETWORK_NAME="${NETWORK_NAME:-n8n-ci-net}"
