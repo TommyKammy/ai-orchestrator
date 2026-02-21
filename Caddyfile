@@ -6,6 +6,8 @@ n8n-s-app01.tmcast.net {
         X-Content-Type-Options "nosniff"
         X-XSS-Protection "1; mode=block"
         Referrer-Policy "strict-origin-when-cross-origin"
+        # Avoid conflicting X-Frame-Options values from upstream and proxy.
+        X-Frame-Options "SAMEORIGIN"
     }
 
     # Legacy Slack slash command paths - rewrite to n8n webhook
@@ -49,5 +51,7 @@ n8n-s-app01.tmcast.net {
         header_up X-Real-IP {remote}
         header_up X-Forwarded-For {remote}
         header_up X-Forwarded-Proto {scheme}
+        # Upstream may emit its own X-Frame-Options; keep only the proxy value.
+        header_down -X-Frame-Options
     }
 }
