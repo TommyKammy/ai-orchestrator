@@ -33,8 +33,35 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.status === 'error' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [760, 200],
+      "name": "Validation Error?"
+    },
+    {
+      "parameters": {
         "method": "POST",
-        "url": "={{($env.OPA_URL || 'http://opa:8181') + '/v1/data/ai/policy/result'}}",
+        "url": "http://opa:8181/v1/data/ai/policy/result",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -46,7 +73,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"input\": {\n    \"subject\": {\n      \"tenant_id\": $('Check Validation').first().json.tenant_id || 'unknown',\n      \"scope\": $('Check Validation').first().json.scope || 'unknown',\n      \"role\": \"workflow\"\n    },\n    \"resource\": {\n      \"tenant_id\": $('Check Validation').first().json.tenant_id || 'unknown',\n      \"scope\": $('Check Validation').first().json.scope || 'unknown',\n      \"task_type\": $('Check Validation').first().json.task?.type || 'code_execution',\n      \"template\": \"n8n-dispatch\"\n    },\n    \"action\": \"executor.execute\",\n    \"context\": {\n      \"request_id\": $('Check Validation').first().json.request_id,\n      \"network_enabled\": false,\n      \"payload_size\": JSON.stringify($('Check Validation').first().json.task || {}).length\n    }\n  }\n}",
+        "jsonBody": "={{ JSON.stringify({ input: { subject: { tenant_id: $('Check Validation').first().json.tenant_id || 'unknown', scope: $('Check Validation').first().json.scope || 'unknown', role: 'workflow' }, resource: { tenant_id: $('Check Validation').first().json.tenant_id || 'unknown', scope: $('Check Validation').first().json.scope || 'unknown', task_type: (($('Check Validation').first().json.task || {}).type) || 'code_execution', template: 'n8n-dispatch' }, action: 'executor.execute', context: { request_id: $('Check Validation').first().json.request_id, network_enabled: false, payload_size: JSON.stringify($('Check Validation').first().json.task || {}).length } } }) }}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -65,8 +92,101 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.status === 'error' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 260],
+      "name": "Policy Error?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nif (data.status === 'error') {\n  return [{ json: data }];\n}\n\nconst task = data.task || {};\nconst payload = task.payload || {};\n\nif (task.type !== 'security_digest_mail') {\n  return [{ json: data }];\n}\n\nconst message = [\n  '以下の事実データから、読みやすい日本語メルマガ本文を作成してください。',\n  '',\n  '要件:',\n  '- 構成: 1) 今日の要点(3行) 2) 重要トピックTOP3 3) 業務影響の見方 4) 今日やることチェックリスト(5項目以内)',\n  '- 誇張せず、根拠は事実データのみ',\n  '- 1通で2-3分で読める分量',\n  '- 平易で実務に使える日本語',\n  '',\n  '事実データ:',\n  String(payload.message || ''),\n].join('\\n');\n\nreturn [{\n  json: {\n    ...data,\n    _brain_enabled: true,\n    brain_input: {\n      tenant_id: data.tenant_id || 'corp-internal',\n      scope: data.scope || 'security-digest',\n      message,\n      meta: {\n        source: '04_executor_dispatch',\n        use_case: 'daily_digest_executor'\n      },\n      brain: {\n        provider: task.llm?.provider || 'openrouter',\n        model: task.llm?.model || 'qwen/qwen3-next-80b-a3b-instruct:free',\n        temperature: 0.3\n      }\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1200, 400],
+      "name": "Build Brain Router Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json._brain_enabled === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1360, 400],
+      "name": "Needs Brain Router?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nreturn [{\n  json: {\n    ...data.brain_input,\n    _executor_context: data\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1520, 300],
+      "name": "Prepare Brain Payload"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "value": "brain_router_v2"
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1680, 300],
+      "name": "Execute Brain Router",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const brainResp = $input.first().json || {};\nconst context = $('Prepare Brain Payload').first().json._executor_context || {};\n\nif (!context || Object.keys(context).length === 0) {\n  return [{ json: brainResp }];\n}\n\nconst task = context.task || {};\nconst payload = task.payload || {};\n\nif (task.type !== 'security_digest_mail') {\n  return [{ json: context }];\n}\n\nconst llmText = (brainResp.ok === true && String(brainResp.status || '').toUpperCase() === 'OK')\n  ? String(brainResp.answer || '').trim()\n  : '';\n\nconst finalMessage = llmText\n  ? `${llmText}\\n\\n---\\n[Source Facts]\\n${String(payload.message || '')}`\n  : String(payload.message || '');\n\nconst safeSubject = String(payload.subject || 'Daily Security Digest').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst safeBody = finalMessage.replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst finalHtml = `<h2>${safeSubject}</h2><pre>${safeBody}</pre>`;\n\nconst updatedTask = {\n  ...task,\n  payload: {\n    ...payload,\n    message: finalMessage,\n    htmlMessage: finalHtml\n  }\n};\n\nreturn [{\n  json: {\n    ...context,\n    task: updatedTask,\n    output: {\n      ...(context.output || {}),\n      task: updatedTask,\n      llm: {\n        provider: brainResp.provider || 'openrouter',\n        status: brainResp.status || 'ERROR'\n      }\n    },\n    outcome: llmText ? 'ok' : 'ok_with_local_fallback'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1840, 300],
+      "name": "Apply Brain Output"
+    },
+    {
+      "parameters": {
         "respondWith": "json",
-        "json": "={{ JSON.stringify({ status: \"error\", message: $input.first().json.message, request_id: $input.first().json.request_id || null, policy: $input.first().json.policy || null, approval: $input.first().json.approval || null }) }}"
+        "responseBody": "={{ ({ status: 'error', message: $input.first().json.message, request_id: $input.first().json.request_id || null, policy: $input.first().json.policy || null, approval: $input.first().json.approval || null }) }}"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
@@ -110,7 +230,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "json": "={{ JSON.stringify({ status: \"success\", request_id: $input.first().json.request_id || null, outcome: $input.first().json.outcome, output: $input.first().json.output }) }}"
+        "responseBody": "={{ ({ status: 'success', request_id: $input.first().json.request_id || null, outcome: $input.first().json.outcome, output: $input.first().json.output }) }}"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
@@ -145,10 +265,23 @@
       "main": [
         [
           {
+            "node": "Validation Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation Error?": {
+      "main": [
+        [
+          {
             "node": "Error Response",
             "type": "main",
             "index": 0
-          },
+          }
+        ],
+        [
           {
             "node": "Evaluate Policy",
             "type": "main",
@@ -172,10 +305,85 @@
       "main": [
         [
           {
+            "node": "Policy Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Policy Error?": {
+      "main": [
+        [
+          {
             "node": "Error Response",
             "type": "main",
             "index": 0
-          },
+          }
+        ],
+        [
+          {
+            "node": "Build Brain Router Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Brain Router Input": {
+      "main": [
+        [
+          {
+            "node": "Needs Brain Router?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Brain Router?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Brain Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert Episode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Brain Payload": {
+      "main": [
+        [
+          {
+            "node": "Execute Brain Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Brain Router": {
+      "main": [
+        [
+          {
+            "node": "Apply Brain Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Brain Output": {
+      "main": [
+        [
           {
             "node": "Insert Episode",
             "type": "main",

@@ -3,7 +3,8 @@
     "allowed_task_types": [
       "ping",
       "health_check",
-      "code_execution"
+      "code_execution",
+      "security_digest_mail"
     ],
     "thresholds": {
       "requires_approval": 40,

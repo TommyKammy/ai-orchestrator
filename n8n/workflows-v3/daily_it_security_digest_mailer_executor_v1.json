@@ -1,0 +1,321 @@
+{
+  "name": "daily_it_security_digest_mailer_executor_v1",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "trigger-schedule-1",
+      "name": "Schedule Trigger (08:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "recipient",
+              "value": "={{ $env.SECURITY_DIGEST_TO || 'your.email@example.com' }}"
+            },
+            {
+              "name": "tenant_id",
+              "value": "corp-internal"
+            },
+            {
+              "name": "scope",
+              "value": "security-digest"
+            }
+          ]
+        }
+      },
+      "id": "set-config-1",
+      "name": "Set Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        450,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "http-cisa-kev-1",
+      "name": "Fetch CISA KEV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        320
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=' + encodeURIComponent(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) + '&pubEndDate=' + encodeURIComponent(new Date().toISOString()) + '&resultsPerPage=20' }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "http-nvd-1",
+      "name": "Fetch NVD (24h)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        870,
+        320
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const now = new Date();\nconst yyyy = now.getFullYear();\nconst mm = String(now.getMonth() + 1).padStart(2, '0');\nconst dd = String(now.getDate()).padStart(2, '0');\nconst dateLabel = `${yyyy}-${mm}-${dd}`;\n\nconst cfg = $('Set Config').first().json;\nconst recipient = cfg.recipient || 'your.email@example.com';\n\nconst cisaRaw = $('Fetch CISA KEV').first()?.json || {};\nconst nvdRaw = $('Fetch NVD (24h)').first()?.json || {};\n\nconst cisaList = Array.isArray(cisaRaw.vulnerabilities) ? cisaRaw.vulnerabilities : [];\nconst nvdList = Array.isArray(nvdRaw.vulnerabilities) ? nvdRaw.vulnerabilities : [];\n\nconst topKev = cisaList.slice(-3).reverse();\nconst topNvd = nvdList.slice(0, 3);\n\nconst lines = [];\nlines.push(`【日次ITセキュリティダイジェスト】${dateLabel}`);\nlines.push('');\nlines.push('■ 1) CISA: Known Exploited Vulnerabilities (Top 3)');\nif (topKev.length === 0) {\n  lines.push('- 取得できませんでした（フィード応答なし/形式変更の可能性）');\n} else {\n  for (const v of topKev) {\n    const cve = v.cveID || 'N/A';\n    const vendor = v.vendorProject || 'Unknown';\n    const product = v.product || 'Unknown';\n    const due = v.dueDate || '-';\n    const note = (v.shortDescription || '').replace(/\\s+/g, ' ').trim();\n    lines.push(`- ${cve} | ${vendor} ${product} | Due: ${due}`);\n    if (note) lines.push(`  - ${note.slice(0, 160)}${note.length > 160 ? '...' : ''}`);\n  }\n}\n\nlines.push('');\nlines.push('■ 2) NVD: 新規公開CVEs (過去24時間 Top 3)');\nif (topNvd.length === 0) {\n  lines.push('- 取得できませんでした（API応答なし/レート制限の可能性）');\n} else {\n  for (const row of topNvd) {\n    const cve = row?.cve || {};\n    const id = cve.id || 'N/A';\n    const published = cve.published ? String(cve.published).slice(0, 10) : '-';\n    const desc = (cve.descriptions || []).find(d => d.lang === 'en')?.value || '';\n\n    let score = '-';\n    const m31 = cve.metrics?.cvssMetricV31?.[0]?.cvssData?.baseScore;\n    const m30 = cve.metrics?.cvssMetricV30?.[0]?.cvssData?.baseScore;\n    const m2 = cve.metrics?.cvssMetricV2?.[0]?.cvssData?.baseScore;\n    if (m31 !== undefined) score = String(m31);\n    else if (m30 !== undefined) score = String(m30);\n    else if (m2 !== undefined) score = String(m2);\n\n    lines.push(`- ${id} | CVSS: ${score} | Published: ${published}`);\n    if (desc) lines.push(`  - ${desc.replace(/\\s+/g, ' ').trim().slice(0, 160)}${desc.length > 160 ? '...' : ''}`);\n  }\n}\n\nlines.push('');\nlines.push('■ メモ');\nlines.push('- 本メールは自動生成です。重要度判定は一次情報（NVD/CISAベンダーアドバイザリ）で再確認してください。');\nlines.push('- 本ワークフローは Executor Dispatch を経由し、監査経路の実証実験に使えます。');\n\nconst message = lines.join('\\n');\nconst htmlMessage = `<h2>日次ITセキュリティダイジェスト (${dateLabel})</h2><p>自動収集元: CISA KEV / NVD</p><pre>${message.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;\n\nreturn [{\n  json: {\n    tenant_id: cfg.tenant_id || 'corp-internal',\n    scope: cfg.scope || 'security-digest',\n    recipient,\n    subject: `【Daily Security Digest】${dateLabel} ITセキュリティ速報`,\n    message,\n    htmlMessage,\n    source_stats: {\n      cisa_count: cisaList.length,\n      nvd_count: nvdList.length\n    }\n  }\n}];"
+      },
+      "id": "code-build-digest-1",
+      "name": "Build Digest (Local)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst message = String(input.message || '');\n\nlet model = 'qwen/qwen3-next-80b-a3b-instruct:free';\nlet selectedBy = 'policy:default';\n\nif (message.length > 3500 || message.includes('CVE-')) {\n  model = 'arcee-ai/trinity-large-preview:free';\n  selectedBy = message.length > 3500 ? 'policy:long-text' : 'policy:digest';\n}\n\nreturn [{\n  json: {\n    ...input,\n    llm: {\n      provider: 'openrouter',\n      model,\n      selectedBy\n    }\n  }\n}];"
+      },
+      "id": "code-select-model-1",
+      "name": "Select Model Policy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ai-n8n:5678/webhook/executor/run",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ tenant_id: $json.tenant_id, scope: $json.scope, request_id: 'sec-digest-' + Date.now(), task: { type: 'security_digest_mail', template: 'daily_it_security_digest', llm: { provider: ($json.llm && $json.llm.provider) || 'openrouter', model: ($json.llm && $json.llm.model) || 'qwen/qwen3-next-80b-a3b-instruct:free', selectedBy: ($json.llm && $json.llm.selectedBy) || 'policy:default' }, payload: { recipient: $json.recipient, subject: $json.subject, message: $json.message, htmlMessage: $json.htmlMessage, source_stats: $json.source_stats } } }) }}",
+        "options": {
+          "response": {
+            "fullResponse": true
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "http-executor-dispatch-1",
+      "name": "Call Executor Dispatch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        320
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const local = $('Build Digest (Local)').first().json;\nconst raw = $('Call Executor Dispatch').first().json || {};\n\nlet execResp = raw.body ?? raw;\nif (typeof execResp === 'string') {\n  try {\n    execResp = JSON.parse(execResp);\n  } catch {\n    execResp = { status: 'error', message: execResp };\n  }\n}\nif (!execResp || typeof execResp !== 'object') {\n  execResp = { status: 'error', message: 'invalid_executor_response' };\n}\n\nconst success = execResp.status === 'success';\nconst taskPayload = execResp.output?.task?.payload || {};\nconst taskLlm = execResp.output?.task?.llm || $('Select Model Policy').first().json.llm || {};\n\nconst subject = taskPayload.subject || local.subject;\nlet message = taskPayload.message || local.message;\nlet htmlMessage = taskPayload.htmlMessage || local.htmlMessage;\n\nconst meta = success\n  ? `\\n\\n---\\n[executor] request_id=${execResp.request_id || '-'} outcome=${execResp.outcome || '-'} mode=executor llm=${taskLlm.provider || '-'}:${taskLlm.model || '-'} by=${taskLlm.selectedBy || '-'} http=${raw.statusCode || raw.status || '-'} `\n  : `\\n\\n---\\n[executor] failed_or_unavailable mode=fallback-local llm=${taskLlm.provider || '-'}:${taskLlm.model || '-'} by=${taskLlm.selectedBy || '-'} http=${raw.statusCode || raw.status || '-'} err=${execResp.message || '-'}`;\n\nmessage = `${message}${meta}`;\nif (!htmlMessage || typeof htmlMessage !== 'string') {\n  htmlMessage = `<pre>${message.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;\n} else {\n  htmlMessage = `${htmlMessage}<p>${meta.replace(/\\n/g, '<br>')}</p>`;\n}\n\nreturn [{\n  json: {\n    recipient: taskPayload.recipient || local.recipient,\n    subject,\n    message,\n    htmlMessage\n  }\n}];"
+      },
+      "id": "code-resolve-output-1",
+      "name": "Resolve Executor Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rawRecipient = String($json.recipient || '').replace(/[\\r\\n]/g, ' ').trim();\n\n// Accept comma/semicolon separated recipients, normalize, and validate.\nconst recipients = rawRecipient\n  .split(/[;,]/)\n  .map((s) => s.trim())\n  .filter(Boolean);\n\nconst emailRe = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$/;\nconst validRecipients = recipients.filter((r) => emailRe.test(r));\n\nif (validRecipients.length === 0) {\n  throw new Error(`Invalid recipient email address: \"${rawRecipient}\". Set SECURITY_DIGEST_TO to a valid address.`);\n}\n\nconst to = validRecipients.join(', ');\nconst subjectRaw = String($json.subject || 'Daily Security Digest').replace(/[\\r\\n]/g, ' ').trim();\nconst subject = /^[\\x00-\\x7F]*$/.test(subjectRaw)\n  ? subjectRaw\n  : `=?UTF-8?B?${Buffer.from(subjectRaw, 'utf8').toString('base64')}?=`;\n\nconst text = String($json.message || '');\nconst html = String(\n  $json.htmlMessage || `<pre>${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`\n);\n\nconst boundary = 'n8n_' + Date.now();\nconst rfc822 = [\n  `To: ${to}`,\n  `Subject: ${subject}`,\n  'MIME-Version: 1.0',\n  `Content-Type: multipart/alternative; boundary=\"${boundary}\"`,\n  '',\n  `--${boundary}`,\n  'Content-Type: text/plain; charset=\"UTF-8\"',\n  'Content-Transfer-Encoding: 7bit',\n  '',\n  text,\n  `--${boundary}`,\n  'Content-Type: text/html; charset=\"UTF-8\"',\n  'Content-Transfer-Encoding: 7bit',\n  '',\n  html,\n  `--${boundary}--`\n].join('\\r\\n');\n\nconst raw = Buffer.from(rfc822, 'utf8')\n  .toString('base64')\n  .replace(/\\+/g, '-')\n  .replace(/\\//g, '_')\n  .replace(/=+$/g, '');\n\nreturn [{ json: { ...$json, gmailRaw: raw, toNormalized: to } }];"
+      },
+      "id": "code-build-gmail-raw-1",
+      "name": "Build Gmail Raw",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1740,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        "authentication": "oAuth2",
+        "genericAuthType": "httpQueryAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{JSON.stringify({raw: $json.gmailRaw})}}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "gmail-send-1",
+      "name": "Send Digest (Gmail API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1960,
+        320
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (08:00)": {
+      "main": [
+        [
+          {
+            "node": "Set Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Config": {
+      "main": [
+        [
+          {
+            "node": "Fetch CISA KEV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch CISA KEV": {
+      "main": [
+        [
+          {
+            "node": "Fetch NVD (24h)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch NVD (24h)": {
+      "main": [
+        [
+          {
+            "node": "Build Digest (Local)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest (Local)": {
+      "main": [
+        [
+          {
+            "node": "Select Model Policy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Model Policy": {
+      "main": [
+        [
+          {
+            "node": "Call Executor Dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Executor Dispatch": {
+      "main": [
+        [
+          {
+            "node": "Resolve Executor Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Executor Output": {
+      "main": [
+        [
+          {
+            "node": "Build Gmail Raw",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gmail Raw": {
+      "main": [
+        [
+          {
+            "node": "Send Digest (Gmail API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "timezone": "Asia/Tokyo"
+  },
+  "staticData": null,
+  "tags": [
+    "security",
+    "gmail",
+    "daily-digest",
+    "executor"
+  ]
+}
