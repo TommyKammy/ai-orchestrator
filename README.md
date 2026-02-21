@@ -95,6 +95,14 @@ Notes:
 - `N8N_DEFAULT_LOCALE=ja` is applied via the overlay
 - You can keep running standard CE without this overlay if desired
 
+### Policy Registry Publish (CE)
+
+Week2 adds no-restart policy publish flow for OPA:
+
+- n8n workflow `07_policy_registry_publish` writes published rules to DB and calls `POST /registry/publish` on `policy-bundle-server`
+- `policy-bundle-server` persists runtime registry to `policy/runtime/policy_registry.json`
+- OPA keeps polling bundle (`min_delay_seconds: 10`) and picks up updates without OPA restart
+
 ### Kubernetes (Production)
 
 \`\`\`bash

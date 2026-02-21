@@ -5,8 +5,11 @@ import os
 import tarfile
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 
 POLICY_SOURCE_DIR = os.environ.get("POLICY_SOURCE_DIR", "/policy-source")
+POLICY_RUNTIME_DIR = os.environ.get("POLICY_RUNTIME_DIR", "/policy-runtime")
+RUNTIME_REGISTRY_PATH = os.path.join(POLICY_RUNTIME_DIR, "policy_registry.json")
 HOST = os.environ.get("BUNDLE_SERVER_HOST", "0.0.0.0")
 PORT = int(os.environ.get("BUNDLE_SERVER_PORT", "8088"))
 
@@ -32,6 +35,15 @@ def build_bundle_bytes():
     data.setdefault("policy", {})
     data.setdefault("policy_registry", {"workflows": []})
     data.setdefault("bundle_meta", {})
+    runtime_registry = _read_json(RUNTIME_REGISTRY_PATH, {})
+    if isinstance(runtime_registry.get("workflows"), list):
+        data["policy_registry"]["workflows"] = runtime_registry["workflows"]
+    if runtime_registry.get("revision_id"):
+        data["bundle_meta"]["revision_id"] = runtime_registry["revision_id"]
+    if runtime_registry.get("published_at"):
+        data["bundle_meta"]["published_at"] = runtime_registry["published_at"]
+    if runtime_registry.get("actor"):
+        data["bundle_meta"]["actor"] = runtime_registry["actor"]
     data["bundle_meta"]["generated_at"] = datetime.now(timezone.utc).isoformat()
 
     rego_files = [
@@ -61,14 +73,37 @@ def build_bundle_bytes():
 
 
 class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
+    def _send_json(self, status, payload):
+        body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_HEAD(self):
         if self.path == "/healthz":
-            payload = b'{"ok":true}'
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Content-Length", "11")
             self.end_headers()
-            self.wfile.write(payload)
+            return
+
+        if self.path == "/bundles/policy.tar.gz":
+            body = build_bundle_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/gzip")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return
+
+        self.send_response(404)
+        self.end_headers()
+
+    def do_GET(self):
+        if self.path == "/healthz":
+            self._send_json(200, {"ok": True})
             return
 
         if self.path == "/bundles/policy.tar.gz":
@@ -81,8 +116,56 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
+        if self.path == "/registry/current":
+            payload = _read_json(RUNTIME_REGISTRY_PATH, {"workflows": []})
+            if "workflows" not in payload:
+                payload["workflows"] = []
+            self._send_json(200, payload)
+            return
+
         self.send_response(404)
         self.end_headers()
+
+    def do_POST(self):
+        if self.path != "/registry/publish":
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._send_json(400, {"ok": False, "error": "invalid content-length"})
+            return
+
+        raw_body = self.rfile.read(content_length)
+        try:
+            payload = json.loads(raw_body.decode("utf-8") if raw_body else "{}")
+        except Exception:
+            self._send_json(400, {"ok": False, "error": "invalid json"})
+            return
+
+        workflows = payload.get("workflows")
+        if not isinstance(workflows, list):
+            self._send_json(400, {"ok": False, "error": "workflows must be array"})
+            return
+
+        runtime_payload = {
+            "revision_id": str(payload.get("revision_id", "")).strip() or f"rev-{int(datetime.now(timezone.utc).timestamp())}",
+            "actor": str(payload.get("actor", "n8n-ce")),
+            "notes": str(payload.get("notes", "")),
+            "published_at": datetime.now(timezone.utc).isoformat(),
+            "workflows": workflows,
+        }
+
+        Path(POLICY_RUNTIME_DIR).mkdir(parents=True, exist_ok=True)
+        tmp_path = f"{RUNTIME_REGISTRY_PATH}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(runtime_payload, f, ensure_ascii=True, indent=2)
+            f.write("\n")
+        os.replace(tmp_path, RUNTIME_REGISTRY_PATH)
+
+        self._send_json(200, {"ok": True, "revision_id": runtime_payload["revision_id"], "count": len(workflows)})
 
     def log_message(self, format, *args):
         return
