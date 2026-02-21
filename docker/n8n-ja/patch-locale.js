@@ -18,7 +18,7 @@ const target = fs
   .find((name) => name.startsWith("_MapCache-") && name.endsWith(".js"));
 
 if (!target) {
-  throw new Error(`Could not find _MapCache asset in ${assetsDir}`);
+  throw new Error("Could not find _MapCache asset in " + assetsDir);
 }
 
 const targetPath = path.join(assetsDir, target);
@@ -26,13 +26,13 @@ let content = fs.readFileSync(targetPath, "utf8");
 
 const marker = "messages: { en: en_default },";
 if (!content.includes(marker)) {
-  throw new Error(`Marker not found in ${targetPath}`);
+  throw new Error("Marker not found in " + targetPath);
 }
 
 const localeLiteral = JSON.stringify(localeData);
-const replacement = `messages: { en: en_default, ja: Object.assign({}, en_default, ${localeLiteral}) },`;
+const replacement = "messages: { en: en_default, ja: Object.assign({}, en_default, " + localeLiteral + ") },";
 
 content = content.replace(marker, replacement);
 fs.writeFileSync(targetPath, content, "utf8");
 
-console.log(`Patched locale file: ${targetPath}`);
+console.log("Patched locale file: " + targetPath);
