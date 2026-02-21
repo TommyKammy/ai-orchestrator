@@ -82,6 +82,19 @@ cp .env.example .env
 ./deploy.sh
 \`\`\`
 
+### n8n Japanese Locale Overlay (CE)
+
+Use the optional compose overlay to build/apply a Japanese locale pack for n8n UI:
+
+\`\`\`bash
+docker compose -f docker-compose.yml -f docker-compose.n8n-ja.yml up -d --build n8n
+\`\`\`
+
+Notes:
+- The locale pack is in `n8n/locales/ja.partial.json` (partial translation + English fallback)
+- `N8N_DEFAULT_LOCALE=ja` is applied via the overlay
+- You can keep running standard CE without this overlay if desired
+
 ### Kubernetes (Production)
 
 \`\`\`bash

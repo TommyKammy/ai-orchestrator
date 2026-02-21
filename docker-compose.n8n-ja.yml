@@ -1,0 +1,8 @@
+services:
+  n8n:
+    image: ${N8N_IMAGE:-ai-n8n-ja:2.7.5}
+    build:
+      context: .
+      dockerfile: docker/n8n-ja/Dockerfile
+    environment:
+      N8N_DEFAULT_LOCALE: ${N8N_DEFAULT_LOCALE:-ja}
