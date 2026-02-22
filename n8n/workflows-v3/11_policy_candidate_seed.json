@@ -1,0 +1,179 @@
+{
+  "name": "11 Policy Candidate Seed",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "policy/test/seed-candidate",
+        "responseMode": "responseNode"
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [260, 260],
+      "name": "Webhook",
+      "webhookId": "policy-test-seed-candidate"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || {};\n\nconst task_type = String(body.task_type || 'test_policy_task').trim();\nconst tenant_id = String(body.tenant_id || 'test-tenant').trim();\nconst scope = String(body.scope || 'test-scope').trim();\nconst summary = String(body.summary || `seed ${task_type}`).trim();\nconst outcome = String(body.outcome || 'ok').trim();\n\nif (!task_type) {\n  return [{ json: { status: 'error', message: 'task_type is required' } }];\n}\n\nreturn [{\n  json: {\n    task_type,\n    tenant_id,\n    scope,\n    summary,\n    outcome,\n    request_id: `seed-${Date.now()}`,\n    metadata: {\n      executor: 'ai-executor',\n      task: {\n        type: task_type,\n        template: 'policy-candidate-seed'\n      },\n      source: '11_policy_candidate_seed',\n      seeded_at: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 260],
+      "name": "Build Seed Payload"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "status-error-check",
+              "leftValue": "={{$json.status}}",
+              "rightValue": "error",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [760, 260],
+      "name": "Validation Error?"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [980, 160],
+      "name": "Error Response"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO policy_candidate_events (task_type, tenant_id, scope, source)\nVALUES ('{{ $json.task_type.replace(/'/g, \"''\") }}', '{{ $json.tenant_id.replace(/'/g, \"''\") }}', '{{ $json.scope.replace(/'/g, \"''\") }}', '{{ ($json.metadata.source || '11_policy_candidate_seed').replace(/'/g, \"''\") }}')\nRETURNING id, task_type, tenant_id, scope, created_at;"
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [980, 340],
+      "name": "Insert Seed Episode",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const seed = $('Build Seed Payload').first().json;\nconst row = $input.first().json || {};\n\nreturn [{\n  json: {\n    status: 'ok',\n    action: 'seed_candidate',\n    request_id: seed.request_id,\n    task_type: seed.task_type,\n    tenant_id: seed.tenant_id,\n    scope: seed.scope,\n    inserted: row\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1220, 340],
+      "name": "Build Success Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1440, 340],
+      "name": "Success Response"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build Seed Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Seed Payload": {
+      "main": [
+        [
+          {
+            "node": "Validation Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation Error?": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert Seed Episode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Seed Episode": {
+      "main": [
+        [
+          {
+            "node": "Build Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Success Response": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "tags": [
+    "policy",
+    "registry",
+    "test",
+    "seed"
+  ]
+}
