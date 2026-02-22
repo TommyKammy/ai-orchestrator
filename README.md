@@ -119,6 +119,7 @@ Related docs:
 - `docs/POLICY-REGISTRY-E2E-EVIDENCE-20260222.md`
 - `docs/POLICY-REGISTRY-TROUBLESHOOTING.md`
 - `docs/POSTGRES-DATA-LAYOUT-MIGRATION.md`
+- `docs/HOST-QUICK-FLOW.md`
 
 ### Kubernetes (Production)
 
