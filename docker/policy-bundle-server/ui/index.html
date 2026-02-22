@@ -52,7 +52,7 @@
       <section class="card">
         <h2>Upsert Rule</h2>
         <form id="upsertForm" class="form-grid">
-          <label>task_type<input name="task_type" required /></label>
+          <label>task_type<input name="task_type" list="taskTypeOptions" required /></label>
           <label>policy_scope
             <select name="policy_scope">
               <option value="task_type_only" selected>task_type_only (Recommended)</option>
@@ -74,11 +74,13 @@
           <details class="span-2 advanced">
             <summary>Advanced (workflow-specific override)</summary>
             <label>workflow_id (optional, default: *)
-              <input name="workflow_id" placeholder="daily_it_security_digest_mailer_executor_v1" />
+              <input name="workflow_id" list="workflowOptions" placeholder="daily_it_security_digest_mailer_executor_v1" />
             </label>
           </details>
           <button class="btn" type="submit">Upsert</button>
         </form>
+        <datalist id="taskTypeOptions"></datalist>
+        <datalist id="workflowOptions"></datalist>
       </section>
 
       <section class="card">

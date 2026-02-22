@@ -4,6 +4,7 @@
 This runbook covers operational steps for policy registry workflows:
 - `06_policy_registry_upsert`
 - `07_policy_registry_publish`
+- `10_policy_registry_candidates`
 - OPA bundle reflection (no OPA restart)
 
 ## Prerequisites
@@ -79,7 +80,9 @@ Query policy decision endpoint and confirm expected decision.
 - The UI calls server-side proxy APIs:
   - `GET /policy-ui/api/list`
   - `GET /policy-ui/api/get`
+  - `GET /policy-ui/api/candidates`
   - `POST /policy-ui/api/upsert`
   - `POST /policy-ui/api/publish`
   - `GET /policy-ui/api/current`
+- Candidate dropdowns (`task_type`, optional `workflow_id`) are sourced from `10_policy_registry_candidates`.
 - Browser does not need direct webhook API key handling for these operations.

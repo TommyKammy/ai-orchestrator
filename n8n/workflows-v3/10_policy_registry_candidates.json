@@ -1,0 +1,89 @@
+{
+  "name": "10 Policy Registry Candidates",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "policy/registry/candidates",
+        "responseMode": "responseNode"
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [260, 300],
+      "name": "Webhook",
+      "webhookId": "policy-registry-candidates"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH wf AS ( SELECT DISTINCT name AS workflow_id FROM workflow_entity WHERE COALESCE(active, true) = true ), unregistered AS ( SELECT wf.workflow_id FROM wf WHERE NOT EXISTS ( SELECT 1 FROM policy_workflows pw WHERE pw.workflow_id = wf.workflow_id ) ) SELECT workflow_id FROM unregistered ORDER BY workflow_id LIMIT 300;"
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [520, 240],
+      "name": "Get Unregistered Workflow IDs",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH task_raw AS ( SELECT DISTINCT metadata_jsonb->'task'->>'type' AS task_type FROM memory_episodes WHERE metadata_jsonb->'task'->>'type' IS NOT NULL ), unregistered AS ( SELECT tr.task_type FROM task_raw tr WHERE NOT EXISTS ( SELECT 1 FROM policy_workflows pw WHERE pw.task_type = tr.task_type ) ) SELECT task_type FROM unregistered ORDER BY task_type LIMIT 300;"
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [740, 360],
+      "name": "Get Unregistered Task Types",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const workflowRows = $('Get Unregistered Workflow IDs').all().map(i => i.json);\nconst taskRows = $('Get Unregistered Task Types').all().map(i => i.json);\n\nconst workflow_ids = workflowRows.map(r => String(r.workflow_id || '').trim()).filter(Boolean);\nconst task_types = taskRows.map(r => String(r.task_type || '').trim()).filter(Boolean);\n\nreturn [{\n  json: {\n    status: 'ok',\n    workflow_ids,\n    task_types,\n    counts: {\n      workflow_ids: workflow_ids.length,\n      task_types: task_types.length\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [980, 300],
+      "name": "Build Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1200, 300],
+      "name": "Success Response"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Get Unregistered Workflow IDs", "type": "main", "index": 0 }]]
+    },
+    "Get Unregistered Workflow IDs": {
+      "main": [[{ "node": "Get Unregistered Task Types", "type": "main", "index": 0 }]]
+    },
+    "Get Unregistered Task Types": {
+      "main": [[{ "node": "Build Response", "type": "main", "index": 0 }]]
+    },
+    "Build Response": {
+      "main": [[{ "node": "Success Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "tags": ["policy", "registry", "ce", "candidates"]
+}

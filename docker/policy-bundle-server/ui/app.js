@@ -5,6 +5,8 @@ const runtimeBox = $("#runtimeBox");
 const resultBox = $("#resultBox");
 const searchText = $("#searchText");
 const filterEnabled = $("#filterEnabled");
+const taskTypeOptions = $("#taskTypeOptions");
+const workflowOptions = $("#workflowOptions");
 
 let allRules = [];
 
@@ -111,6 +113,20 @@ async function loadRuntime() {
   return data;
 }
 
+function renderDataList(el, values) {
+  if (!el) return;
+  el.innerHTML = (values || [])
+    .filter(Boolean)
+    .map((v) => `<option value="${escapeHtml(String(v))}"></option>`)
+    .join("");
+}
+
+async function loadCandidates() {
+  const data = await apiGet("/policy-ui/api/candidates");
+  renderDataList(taskTypeOptions, data.task_types || []);
+  renderDataList(workflowOptions, data.workflow_ids || []);
+}
+
 $("#upsertForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.currentTarget;
@@ -136,7 +152,7 @@ $("#upsertForm").addEventListener("submit", async (e) => {
   try {
     const result = await apiPost("/policy-ui/api/upsert", payload);
     setResult(result);
-    await loadRules();
+    await Promise.all([loadRules(), loadCandidates()]);
   } catch (err) {
     setResult(err);
   }
@@ -212,7 +228,7 @@ $("#refreshCurrent").addEventListener("click", async () => {
 
 $("#refreshAll").addEventListener("click", async () => {
   try {
-    await Promise.all([loadRules(), loadRuntime()]);
+    await Promise.all([loadRules(), loadRuntime(), loadCandidates()]);
   } catch (err) {
     setResult(err);
   }
@@ -225,7 +241,7 @@ $("#refreshAll").addEventListener("click", async () => {
 
 (async () => {
   try {
-    await Promise.all([loadRules(), loadRuntime()]);
+    await Promise.all([loadRules(), loadRuntime(), loadCandidates()]);
     setResult({ ok: true, message: "ready" });
   } catch (err) {
     setResult(err);

@@ -195,6 +195,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(status, payload)
             return
 
+        if path == "/policy-ui/api/candidates":
+            status, payload = _proxy_n8n_json("GET", "/webhook/policy/registry/candidates")
+            self._send_json(status, payload)
+            return
+
         if path == "/policy-ui/api/get":
             workflow_id = query.get("workflow_id", [""])[0]
             task_type = query.get("task_type", [""])[0]
