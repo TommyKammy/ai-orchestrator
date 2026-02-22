@@ -1,0 +1,132 @@
+{
+  "name": "12 Policy Registry Delete",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "policy/registry/delete",
+        "responseMode": "responseNode"
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [260, 300],
+      "name": "Webhook",
+      "webhookId": "policy-registry-delete"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || {};\n\nconst workflow_id = String(body.workflow_id || '').trim();\nconst task_type = String(body.task_type || '').trim();\nconst tenant_id = String(body.tenant_id || '*').trim();\nconst scope_pattern = String(body.scope_pattern || '*').trim();\nconst actor = String(body.actor || 'n8n-ce').trim();\n\nif (!workflow_id || !task_type) {\n  return [{ json: { status: 'error', message: 'workflow_id and task_type are required' } }];\n}\n\nreturn [{ json: { workflow_id, task_type, tenant_id, scope_pattern, actor } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [490, 300],
+      "name": "Validate Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.status === 'error' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [700, 300],
+      "name": "Validation Error?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM policy_workflows WHERE workflow_id='{{ $json.workflow_id.replace(/'/g, \"''\") }}' AND task_type='{{ $json.task_type.replace(/'/g, \"''\") }}' AND tenant_id='{{ $json.tenant_id.replace(/'/g, \"''\") }}' AND scope_pattern='{{ $json.scope_pattern.replace(/'/g, \"''\") }}';"
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [930, 360],
+      "name": "Delete Workflow Rule",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO policy_publish_logs (revision_id, action, actor, result, details_jsonb) VALUES ('draft', 'delete', '{{ $('Validate Input').first().json.actor.replace(/'/g, \"''\") }}', 'ok', '{{ JSON.stringify($('Validate Input').first().json).replace(/'/g, \"''\") }}'::jsonb);"
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1160, 360],
+      "name": "Insert Delete Log",
+      "credentials": {
+        "postgres": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "ai-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ status: 'ok', action: 'delete', workflow_id: $('Validate Input').first().json.workflow_id, task_type: $('Validate Input').first().json.task_type, tenant_id: $('Validate Input').first().json.tenant_id, scope_pattern: $('Validate Input').first().json.scope_pattern }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1380, 360],
+      "name": "Success Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ status: 'error', message: $json.message || 'validation_error' }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [930, 180],
+      "name": "Error Response"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Validate Input", "type": "main", "index": 0 }]]
+    },
+    "Validate Input": {
+      "main": [[{ "node": "Validation Error?", "type": "main", "index": 0 }]]
+    },
+    "Validation Error?": {
+      "main": [
+        [{ "node": "Error Response", "type": "main", "index": 0 }],
+        [{ "node": "Delete Workflow Rule", "type": "main", "index": 0 }]
+      ]
+    },
+    "Delete Workflow Rule": {
+      "main": [[{ "node": "Insert Delete Log", "type": "main", "index": 0 }]]
+    },
+    "Insert Delete Log": {
+      "main": [[{ "node": "Success Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "tags": ["policy", "registry", "ce"]
+}

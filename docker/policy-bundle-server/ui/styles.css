@@ -91,6 +91,10 @@ textarea { resize: vertical; }
   border: 1px solid var(--line);
 }
 .btn-warn { background: var(--warn); }
+.btn-danger {
+  background: #b42323;
+  color: #fff;
+}
 .mono {
   margin: 0;
   padding: 10px;

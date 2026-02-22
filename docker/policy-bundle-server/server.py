@@ -235,6 +235,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(status, response)
             return
 
+        if path == "/policy-ui/api/delete":
+            status, response = _proxy_n8n_json("POST", "/webhook/policy/registry/delete", body=payload)
+            self._send_json(status, response)
+            return
+
         self._send_json(404, {"ok": False, "error": "unknown api path"})
 
     def do_HEAD(self):

@@ -50,13 +50,24 @@ function renderRules() {
       const badgeClass = r.enabled ? "status-on" : "status-off";
       const badgeText = r.enabled ? "enabled" : "disabled";
       const ruleKey = encodeURIComponent(`${r.workflow_id || ""}|||${r.task_type || ""}`);
+      const deleteKey = encodeURIComponent(
+        JSON.stringify({
+          workflow_id: r.workflow_id || "",
+          task_type: r.task_type || "",
+          tenant_id: r.tenant_id || "*",
+          scope_pattern: r.scope_pattern || "*",
+        }),
+      );
 
       return `<tr>
         <td>${escapeHtml(r.workflow_id)}</td>
         <td>${escapeHtml(r.task_type)}</td>
         <td><span class="status-pill ${badgeClass}">${badgeText}</span></td>
         <td>${escapeHtml(r.updated_at || "")}</td>
-        <td><button class="btn btn-ghost" data-rule-key="${ruleKey}">inspect</button></td>
+        <td>
+          <button class="btn btn-ghost" data-rule-key="${ruleKey}">inspect</button>
+          <button class="btn btn-danger" data-delete-key="${deleteKey}">delete</button>
+        </td>
       </tr>`;
     })
     .join("");
@@ -80,6 +91,33 @@ function renderRules() {
         setResult({ ok: true, action: "inspect", item: row });
       } catch (err) {
         setResult({ ok: false, action: "inspect", error: err });
+      }
+    });
+  });
+
+  ruleTable.querySelectorAll("button[data-delete-key]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        const payload = JSON.parse(decodeURIComponent(btn.dataset.deleteKey || ""));
+        const ok = confirm(
+          [
+            "Delete this rule?",
+            `workflow_id: ${payload.workflow_id}`,
+            `task_type: ${payload.task_type}`,
+            `tenant_id: ${payload.tenant_id}`,
+            `scope_pattern: ${payload.scope_pattern}`,
+          ].join("\n"),
+        );
+        if (!ok) return;
+
+        const result = await apiPost("/policy-ui/api/delete", {
+          ...payload,
+          actor: "policy-ui",
+        });
+        setResult(result);
+        await Promise.all([loadRules(), loadCandidates()]);
+      } catch (err) {
+        setResult({ ok: false, action: "delete", error: err });
       }
     });
   });
