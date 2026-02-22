@@ -103,6 +103,12 @@ Week2 adds no-restart policy publish flow for OPA:
 - `policy-bundle-server` persists runtime registry to `policy/runtime/policy_registry.json`
 - OPA keeps polling bundle (`min_delay_seconds: 10`) and picks up updates without OPA restart
 
+Related docs:
+- `docs/POLICY-REGISTRY-OPERATIONS.md`
+- `docs/POLICY-REGISTRY-ROLLBACK.md`
+- `docs/POLICY-REGISTRY-E2E-CHECKLIST.md`
+- `docs/POLICY-REGISTRY-TROUBLESHOOTING.md`
+
 ### Kubernetes (Production)
 
 \`\`\`bash
