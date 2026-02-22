@@ -65,8 +65,9 @@ function renderRules() {
         const row = detail.item || allRules.find((x) => x.workflow_id === wf && x.task_type === task) || {};
 
         const form = $("#upsertForm");
-        form.workflow_id.value = row.workflow_id || "";
         form.task_type.value = row.task_type || "";
+        form.policy_scope.value = row.workflow_id && row.workflow_id !== "*" ? "workflow_and_task" : "task_type_only";
+        form.workflow_id.value = row.workflow_id && row.workflow_id !== "*" ? row.workflow_id : "";
         form.tenant_id.value = row.tenant_id || "*";
         form.scope_pattern.value = row.scope_pattern || "*";
         form.enabled.value = row.enabled ? "true" : "false";
@@ -122,8 +123,9 @@ $("#upsertForm").addEventListener("submit", async (e) => {
   }
 
   const payload = {
-    workflow_id: f.workflow_id.value.trim(),
     task_type: f.task_type.value.trim(),
+    policy_scope: f.policy_scope.value || "task_type_only",
+    workflow_id: f.workflow_id.value.trim() || "*",
     tenant_id: f.tenant_id.value.trim() || "*",
     scope_pattern: f.scope_pattern.value.trim() || "*",
     actor: f.actor.value.trim() || "policy-ui",

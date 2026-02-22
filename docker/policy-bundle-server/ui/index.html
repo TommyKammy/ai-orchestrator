@@ -52,8 +52,13 @@
       <section class="card">
         <h2>Upsert Rule</h2>
         <form id="upsertForm" class="form-grid">
-          <label>workflow_id<input name="workflow_id" required /></label>
           <label>task_type<input name="task_type" required /></label>
+          <label>policy_scope
+            <select name="policy_scope">
+              <option value="task_type_only" selected>task_type_only (Recommended)</option>
+              <option value="workflow_and_task">workflow_and_task</option>
+            </select>
+          </label>
           <label>tenant_id<input name="tenant_id" value="*" /></label>
           <label>scope_pattern<input name="scope_pattern" value="*" /></label>
           <label>actor<input name="actor" value="policy-ui" /></label>
@@ -66,6 +71,12 @@
           <label class="span-2">constraints (JSON)
             <textarea name="constraints" rows="6">{}</textarea>
           </label>
+          <details class="span-2 advanced">
+            <summary>Advanced (workflow-specific override)</summary>
+            <label>workflow_id (optional, default: *)
+              <input name="workflow_id" placeholder="daily_it_security_digest_mailer_executor_v1" />
+            </label>
+          </details>
           <button class="btn" type="submit">Upsert</button>
         </form>
       </section>

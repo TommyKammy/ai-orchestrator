@@ -15,7 +15,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.first().json.body || {};\n\nconst workflow_id = String(body.workflow_id || '').trim();\nconst task_type = String(body.task_type || '').trim();\nconst tenant_id = String(body.tenant_id || '*').trim();\nconst scope_pattern = String(body.scope_pattern || '*').trim();\nconst enabled = body.enabled !== false;\nconst actor = String(body.actor || 'n8n-ce');\nconst constraints = body.constraints && typeof body.constraints === 'object' ? body.constraints : {};\n\nif (!workflow_id || !task_type) {\n  return [{ json: { status: 'error', message: 'workflow_id and task_type are required' } }];\n}\n\nreturn [{\n  json: { workflow_id, task_type, tenant_id, scope_pattern, enabled, actor, constraints }\n}];"
+        "jsCode": "const body = $input.first().json.body || {};\n\nconst task_type = String(body.task_type || '').trim();\nconst policy_scope = String(body.policy_scope || '').trim() || 'task_type_only';\nlet workflow_id = String(body.workflow_id || '').trim();\nconst tenant_id = String(body.tenant_id || '*').trim();\nconst scope_pattern = String(body.scope_pattern || '*').trim();\nconst enabled = body.enabled !== false;\nconst actor = String(body.actor || 'n8n-ce');\nconst constraints = body.constraints && typeof body.constraints === 'object' ? body.constraints : {};\n\nif (!task_type) {\n  return [{ json: { status: 'error', message: 'task_type is required' } }];\n}\n\nif (!workflow_id || policy_scope === 'task_type_only') {\n  workflow_id = '*';\n}\n\nreturn [{\n  json: { workflow_id, task_type, tenant_id, scope_pattern, enabled, actor, constraints, policy_scope }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
