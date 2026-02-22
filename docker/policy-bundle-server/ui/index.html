@@ -23,7 +23,15 @@
       <section class="card card-list">
         <div class="card-head">
           <h2>Rules</h2>
-          <span id="ruleCount" class="badge">0</span>
+          <div class="toolbar">
+            <input id="searchText" type="search" placeholder="search workflow/task..." />
+            <select id="filterEnabled">
+              <option value="all" selected>all</option>
+              <option value="true">enabled only</option>
+              <option value="false">disabled only</option>
+            </select>
+            <span id="ruleCount" class="badge">0</span>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -64,6 +72,7 @@
 
       <section class="card">
         <h2>Publish Revision</h2>
+        <p class="subtitle">Publish updates runtime registry without OPA restart. OPA reflection usually takes 10-30 seconds.</p>
         <form id="publishForm" class="form-grid">
           <label>revision_id<input name="revision_id" placeholder="rev-YYYYMMDD-01" required /></label>
           <label>actor<input name="actor" value="policy-ui" required /></label>

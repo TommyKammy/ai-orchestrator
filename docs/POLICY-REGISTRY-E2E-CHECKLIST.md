@@ -47,3 +47,6 @@ Validate end-to-end path:
 - OPA decision response JSON
 - n8n execution IDs/screenshots
 - DB snippets (`policy_revisions`, `policy_publish_logs`)
+
+## Latest Evidence
+- `docs/POLICY-REGISTRY-E2E-EVIDENCE-20260222.md`
