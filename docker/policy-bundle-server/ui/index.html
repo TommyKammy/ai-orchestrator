@@ -59,6 +59,16 @@
               <option value="workflow_and_task">workflow_and_task</option>
             </select>
           </label>
+          <label>pick from workflow/executor
+            <select id="taskTypeFromWorkflow">
+              <option value="">(select observed task_type)</option>
+            </select>
+          </label>
+          <label>pick from policy registry
+            <select id="taskTypeFromPolicy">
+              <option value="">(select existing policy task_type)</option>
+            </select>
+          </label>
           <label>tenant_id<input name="tenant_id" value="*" /></label>
           <label>scope_pattern<input name="scope_pattern" value="*" /></label>
           <label>actor<input name="actor" value="policy-ui" /></label>

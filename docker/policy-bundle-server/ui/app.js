@@ -7,6 +7,8 @@ const searchText = $("#searchText");
 const filterEnabled = $("#filterEnabled");
 const taskTypeOptions = $("#taskTypeOptions");
 const workflowOptions = $("#workflowOptions");
+const taskTypeFromWorkflow = $("#taskTypeFromWorkflow");
+const taskTypeFromPolicy = $("#taskTypeFromPolicy");
 
 let allRules = [];
 
@@ -74,6 +76,7 @@ function renderRules() {
         form.scope_pattern.value = row.scope_pattern || "*";
         form.enabled.value = row.enabled ? "true" : "false";
         form.constraints.value = JSON.stringify(row.constraints_jsonb || {}, null, 2);
+        setAdvancedVisibility(form);
         setResult({ ok: true, action: "inspect", item: row });
       } catch (err) {
         setResult({ ok: false, action: "inspect", error: err });
@@ -121,10 +124,33 @@ function renderDataList(el, values) {
     .join("");
 }
 
+function renderSelect(el, values, placeholder) {
+  if (!el) return;
+  const rows = (values || []).filter(Boolean).map((v) => `<option value="${escapeHtml(String(v))}">${escapeHtml(String(v))}</option>`);
+  el.innerHTML = `<option value="">${escapeHtml(placeholder)}</option>${rows.join("")}`;
+}
+
 async function loadCandidates() {
   const data = await apiGet("/policy-ui/api/candidates");
-  renderDataList(taskTypeOptions, data.task_types || []);
-  renderDataList(workflowOptions, data.workflow_ids || []);
+
+  const workflowTaskTypes = Array.isArray(data.task_types?.workflow)
+    ? data.task_types.workflow
+    : Array.isArray(data.task_types)
+      ? data.task_types
+      : [];
+  const policyTaskTypes = Array.isArray(data.task_types?.policy) ? data.task_types.policy : [];
+  const workflowIds = Array.isArray(data.workflow_ids) ? data.workflow_ids : [];
+
+  renderDataList(taskTypeOptions, workflowTaskTypes);
+  renderDataList(workflowOptions, workflowIds);
+  renderSelect(taskTypeFromWorkflow, workflowTaskTypes, "(select observed task_type)");
+  renderSelect(taskTypeFromPolicy, policyTaskTypes, "(select existing policy task_type)");
+}
+
+function setAdvancedVisibility(form) {
+  const details = form.querySelector("details.advanced");
+  if (!details) return;
+  details.open = form.policy_scope.value === "workflow_and_task";
 }
 
 $("#upsertForm").addEventListener("submit", async (e) => {
@@ -156,6 +182,18 @@ $("#upsertForm").addEventListener("submit", async (e) => {
   } catch (err) {
     setResult(err);
   }
+});
+
+taskTypeFromWorkflow?.addEventListener("change", () => {
+  const form = $("#upsertForm");
+  const value = taskTypeFromWorkflow.value || "";
+  if (value) form.task_type.value = value;
+});
+
+taskTypeFromPolicy?.addEventListener("change", () => {
+  const form = $("#upsertForm");
+  const value = taskTypeFromPolicy.value || "";
+  if (value) form.task_type.value = value;
 });
 
 $("#publishForm").addEventListener("submit", async (e) => {
@@ -242,6 +280,9 @@ $("#refreshAll").addEventListener("click", async () => {
 (async () => {
   try {
     await Promise.all([loadRules(), loadRuntime(), loadCandidates()]);
+    const form = $("#upsertForm");
+    setAdvancedVisibility(form);
+    form.policy_scope.addEventListener("change", () => setAdvancedVisibility(form));
     setResult({ ok: true, message: "ready" });
   } catch (err) {
     setResult(err);
