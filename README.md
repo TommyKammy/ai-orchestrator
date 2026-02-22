@@ -78,9 +78,17 @@ cd ai-orchestrator
 cp .env.example .env
 # Edit .env with your secrets
 
-# Deploy
+# One-command deploy (includes Caddy + policy-ui validation)
 ./deploy.sh
 \`\`\`
+
+`./deploy.sh` validates:
+- Caddy config syntax in container
+- `policy-ui` direct endpoint on `policy-bundle-server`
+- `policy-ui` route through Caddy
+
+Tip:
+- Set `N8N_HOST` in `.env` before deploy to validate external route (`https://<N8N_HOST>/policy-ui/`).
 
 ### n8n Japanese Locale Overlay (CE)
 
