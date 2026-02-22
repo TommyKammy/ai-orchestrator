@@ -11,6 +11,7 @@ This runbook covers operational steps for policy registry workflows:
 - `policy_workflows`, `policy_revisions`, `policy_publish_logs` tables exist
 - `policy-bundle-server` and `opa` services are healthy
 - Caddy webhook API key is available (`X-API-Key`)
+- Baseline policy includes `security_digest_mail` in `policy/opa/data.json`
 
 ## Standard Flow
 
@@ -51,6 +52,10 @@ Expected response:
 - `action: publish`
 - `bundle_publish.ok: true`
 
+Note:
+- Publish calls use retry/timeout protection (30s timeout, retries enabled).
+- OPA reflection remains asynchronous; validate after 10-30 seconds.
+
 ### 3) Verify runtime registry
 Check bundle-server current registry:
 - `GET /registry/current`
@@ -67,6 +72,7 @@ Query policy decision endpoint and confirm expected decision.
 - Publish is idempotent for same `revision_id`.
 - Use unique `revision_id` for traceability.
 - Keep `actor` and `notes` meaningful for audit trails.
+- Avoid manual file copy deployments (`/tmp -> /opt`). Use git-based host update flow.
 
 ## Lightweight UI (Week3-Day1)
 - URL: `https://<host>/policy-ui/`

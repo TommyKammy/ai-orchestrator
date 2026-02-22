@@ -1,86 +1,47 @@
 #!/bin/bash
-# Deployment script for AI Orchestrator updates
-# Run this script on the production server
+# Host update script (Git-based, no manual file copy).
+# Run this script inside /opt/ai-orchestrator on the host server.
 
-set -e
+set -euo pipefail
 
-echo "=== AI Orchestrator Deployment ==="
+REPO_DIR="${REPO_DIR:-/opt/ai-orchestrator}"
+BRANCH="${BRANCH:-main}"
+REMOTE="${REMOTE:-origin}"
+STASH_NAME="autostash-before-deploy-$(date +%Y%m%d-%H%M%S)"
+
+echo "=== AI Orchestrator Host Update ==="
 echo "Date: $(date)"
+echo "Repo: ${REPO_DIR}"
+echo "Remote/Branch: ${REMOTE}/${BRANCH}"
 echo ""
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+cd "${REPO_DIR}"
 
-# Source directory (GitHub repo)
-SOURCE_DIR="/home/tommy/.dev/ai-orchestrator"
-RUNTIME_DIR="/opt/ai-orchestrator"
-
-echo -e "${YELLOW}Step 1: Copying updated files...${NC}"
-
-# Copy Caddyfile with rate limiting
-echo "  - Copying Caddyfile (with rate limiting)..."
-cp "$SOURCE_DIR/Caddyfile" "$RUNTIME_DIR/Caddyfile"
-
-# Copy updated workflows
-echo "  - Copying workflow files..."
-mkdir -p "$RUNTIME_DIR/n8n/workflows-v3"
-cp "$SOURCE_DIR/n8n/workflows/01_memory_ingest_v3_cached.json" "$RUNTIME_DIR/n8n/workflows-v3/"
-cp "$SOURCE_DIR/n8n/workflows/02_vector_search.json" "$RUNTIME_DIR/n8n/workflows-v3/"
-
-echo -e "${GREEN}✓ Files copied${NC}"
-echo ""
-
-echo -e "${YELLOW}Step 2: Reloading Caddy...${NC}"
-docker exec ai-caddy caddy reload --config /etc/caddy/Caddyfile
-echo -e "${GREEN}✓ Caddy reloaded${NC}"
-echo ""
-
-echo -e "${YELLOW}Step 3: Importing workflows to n8n...${NC}"
-echo "  Note: Workflows must be imported manually through n8n UI"
-echo "  URL: https://n8n-s-app01.tmcast.net"
-echo "  Steps:"
-echo "    1. Workflows → Import from File"
-echo "    2. Select: $RUNTIME_DIR/n8n/workflows-v3/01_memory_ingest_v3_cached.json"
-echo "    3. Select: $RUNTIME_DIR/n8n/workflows-v3/02_vector_search.json"
-echo "    4. Save and Activate each workflow"
-echo "    5. Deactivate old workflows to avoid conflicts"
-echo ""
-
-echo -e "${YELLOW}Step 4: Verifying deployment...${NC}"
-
-# Check Caddy config
-echo "  - Checking Caddy..."
-if docker ps | grep -q "ai-caddy"; then
-    echo -e "${GREEN}✓ Caddy running${NC}"
-else
-    echo -e "${RED}✗ Caddy not running${NC}"
+if [ ! -d ".git" ]; then
+  echo "ERROR: ${REPO_DIR} is not a git repository." >&2
+  exit 1
 fi
 
-# Check n8n
-echo "  - Checking n8n..."
-if docker ps | grep -q "ai-n8n"; then
-    echo -e "${GREEN}✓ n8n running${NC}"
-else
-    echo -e "${RED}✗ n8n not running${NC}"
+echo "[1/4] Fetching latest changes..."
+git fetch "${REMOTE}" "${BRANCH}"
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo "Local uncommitted changes detected. Stashing before rebase..."
+  git stash push -u -m "${STASH_NAME}" >/dev/null
 fi
 
-# Check database
-echo "  - Checking PostgreSQL..."
-if docker exec ai-postgres pg_isready -U ai_user >/dev/null 2>&1; then
-    echo -e "${GREEN}✓ PostgreSQL ready${NC}"
-else
-    echo -e "${RED}✗ PostgreSQL not ready${NC}"
-fi
+echo "[2/4] Rebasing to ${REMOTE}/${BRANCH}..."
+git rebase "${REMOTE}/${BRANCH}"
+
+echo "[3/4] Running one-command deploy with validations..."
+bash ./deploy.sh
+
+echo "[4/4] Final status..."
+docker compose ps
 
 echo ""
-echo -e "${GREEN}=== Deployment Complete ===${NC}"
+echo "=== Host Update Complete ==="
+echo "If you need previous local changes, recover with:"
+echo "  git stash list"
+echo "  git stash pop"
 echo ""
-echo "Next steps:"
-echo "  1. Import workflows through n8n UI"
-echo "  2. Test E2E: curl -X POST https://n8n-s-app01.tmcast.net/webhook/memory/ingest-v3"
-echo "  3. Check logs: docker logs ai-caddy | tail -50"
-echo ""
-

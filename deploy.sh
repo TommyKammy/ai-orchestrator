@@ -9,6 +9,21 @@ echo "Deploying from $SRC to $TARGET"
 echo "Source: $SRC"
 echo "Target: $TARGET"
 
+# Baseline policy guard: keep security_digest_mail in initial allow-list
+if ! python3 - <<'PY' "$SRC/policy/opa/data.json"
+import json, sys
+p = sys.argv[1]
+with open(p, "r", encoding="utf-8") as f:
+    d = json.load(f)
+allowed = d.get("policy", {}).get("allowed_task_types", [])
+if "security_digest_mail" not in allowed:
+    print("ERROR: policy/opa/data.json must include 'security_digest_mail' in policy.allowed_task_types", file=sys.stderr)
+    sys.exit(1)
+PY
+then
+    exit 1
+fi
+
 # Check if target directory exists
 if [ ! -d "$TARGET" ]; then
     echo "Creating target directory: $TARGET"
@@ -21,6 +36,7 @@ sudo mkdir -p "$TARGET/redis"
 sudo mkdir -p "$TARGET/logs"
 sudo mkdir -p "$TARGET/caddy_data"
 sudo mkdir -p "$TARGET/caddy_config"
+sudo mkdir -p "$TARGET/policy/runtime"
 
 # Sync files, excluding runtime data and secrets
 rsync -av --delete \

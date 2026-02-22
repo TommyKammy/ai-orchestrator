@@ -6,13 +6,12 @@ This guide defines the validation steps to run on the hosting server for Week3 d
 
 ```bash
 cd /opt/ai-orchestrator
-git pull
-docker compose up -d --build policy-bundle-server caddy n8n opa
-docker compose ps
+./deploy-updates.sh
 ```
 
 Expected:
 - `ai-policy-bundle-server`, `ai-caddy`, `ai-n8n`, `ai-opa` are `Up`.
+- `policy-ui` route check is validated by deploy script.
 
 ## 2) UI availability
 

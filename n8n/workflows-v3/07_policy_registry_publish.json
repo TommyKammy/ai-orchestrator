@@ -87,33 +87,39 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json) }}",
         "options": {
-          "timeout": 10000
+          "timeout": 30000
         }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [1660, 300],
       "name": "Publish To Bundle Server",
-      "continueOnFail": true
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
     },
     {
       "parameters": {
         "method": "GET",
         "url": "http://policy-bundle-server:8088/healthz",
         "options": {
-          "timeout": 5000
+          "timeout": 15000
         }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [1880, 300],
       "name": "Check Bundle Server",
-      "continueOnFail": true
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ ({ status: 'ok', action: 'publish', revision_id: $('Build Publish Payload').first().json.revision_id, published_count: $('Build Bundle Publish Body').first().json.count, bundle_publish: $('Publish To Bundle Server').first().json, bundle_server: $('Check Bundle Server').first().json }) }}"
+        "responseBody": "={{ ({ status: 'ok', action: 'publish', revision_id: $('Build Publish Payload').first().json.revision_id, published_count: $('Build Bundle Publish Body').first().json.count, bundle_publish: $('Publish To Bundle Server').first().json, bundle_server: $('Check Bundle Server').first().json, reflection_hint: 'OPA reflection is asynchronous. Wait 10-30 seconds and verify via OPA decision endpoint.' }) }}"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
