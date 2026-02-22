@@ -185,6 +185,15 @@
     },
     {
       "parameters": {
+        "jsCode": "const data = $input.first().json || {};\n\nconst output = (data.output && typeof data.output === 'object')\n  ? data.output\n  : {\n      timestamp: new Date().toISOString(),\n      task: data.task || {},\n      status: 'received',\n      executor: 'ai-executor'\n    };\n\nreturn [{\n  json: {\n    ...data,\n    status: 'success',\n    request_id: data.request_id || null,\n    outcome: data.outcome || 'ok',\n    output\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1040, 520],
+      "name": "Finalize Success Payload"
+    },
+    {
+      "parameters": {
         "respondWith": "json",
         "responseBody": "={{ ({ status: 'error', message: $input.first().json.message, request_id: $input.first().json.request_id || null, policy: $input.first().json.policy || null, approval: $input.first().json.approval || null }) }}"
       },
@@ -196,7 +205,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO memory_episodes (tenant_id, scope, summary, outcome, started_at, ended_at, metadata_jsonb)\nVALUES ('{{ $input.first().json.tenant_id }}', '{{ $input.first().json.scope }}', 'executor task executed', '{{ $input.first().json.outcome }}', NOW(), NOW(), '{{ JSON.stringify($input.first().json.output).replace(/'/g, \"''\") }}'::jsonb);",
+        "query": "INSERT INTO memory_episodes (tenant_id, scope, summary, outcome, started_at, ended_at, metadata_jsonb)\nVALUES ('{{ $('Finalize Success Payload').first().json.tenant_id }}', '{{ $('Finalize Success Payload').first().json.scope }}', 'executor task executed', '{{ $('Finalize Success Payload').first().json.outcome }}', NOW(), NOW(), '{{ JSON.stringify($('Finalize Success Payload').first().json.output).replace(/'/g, \"''\") }}'::jsonb);",
         "additionalFields": {}
       },
       "type": "n8n-nodes-base.postgres",
@@ -213,7 +222,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO audit_events (actor, action, target, decision, payload_jsonb, created_at)\nVALUES ('workflow:executor_dispatch', 'executor_run', '{{ $input.first().json.scope }}', '{{ $input.first().json.policy.decision || \"allowed\" }}', '{{ JSON.stringify({ request_id: $input.first().json.request_id || \"\", policy: $input.first().json.policy || {} }).replace(/'/g, \"''\") }}'::jsonb, NOW());",
+        "query": "INSERT INTO audit_events (actor, action, target, decision, payload_jsonb, created_at)\nVALUES ('workflow:executor_dispatch', 'executor_run', '{{ $('Finalize Success Payload').first().json.scope }}', '{{ $('Finalize Success Payload').first().json.policy?.decision || \"allowed\" }}', '{{ JSON.stringify({ request_id: $('Finalize Success Payload').first().json.request_id || \"\", policy: $('Finalize Success Payload').first().json.policy || {} }).replace(/'/g, \"''\") }}'::jsonb, NOW());",
         "additionalFields": {}
       },
       "type": "n8n-nodes-base.postgres",
@@ -230,7 +239,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ ({ status: 'success', request_id: $input.first().json.request_id || null, outcome: $input.first().json.outcome, output: $input.first().json.output }) }}"
+        "responseBody": "={{ ({ status: 'success', request_id: $('Finalize Success Payload').first().json.request_id || null, outcome: $('Finalize Success Payload').first().json.outcome, output: $('Finalize Success Payload').first().json.output }) }}"
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
@@ -352,7 +361,7 @@
         ],
         [
           {
-            "node": "Insert Episode",
+            "node": "Finalize Success Payload",
             "type": "main",
             "index": 0
           }
@@ -382,6 +391,17 @@
       ]
     },
     "Apply Brain Output": {
+      "main": [
+        [
+          {
+            "node": "Finalize Success Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Success Payload": {
       "main": [
         [
           {
