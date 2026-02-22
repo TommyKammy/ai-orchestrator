@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 import io
 import json
+import mimetypes
 import os
 import tarfile
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.request import Request, urlopen
 
 POLICY_SOURCE_DIR = os.environ.get("POLICY_SOURCE_DIR", "/policy-source")
 POLICY_RUNTIME_DIR = os.environ.get("POLICY_RUNTIME_DIR", "/policy-runtime")
 RUNTIME_REGISTRY_PATH = os.path.join(POLICY_RUNTIME_DIR, "policy_registry.json")
+N8N_INTERNAL_BASE_URL = os.environ.get("N8N_INTERNAL_BASE_URL", "http://n8n:5678")
+UI_ROOT = os.path.join(os.path.dirname(__file__), "ui")
 HOST = os.environ.get("BUNDLE_SERVER_HOST", "0.0.0.0")
 PORT = int(os.environ.get("BUNDLE_SERVER_PORT", "8088"))
 
@@ -28,6 +34,53 @@ def _read_json(path, fallback):
             return json.load(f)
     except Exception:
         return fallback
+
+
+def _read_body_json(handler):
+    try:
+        content_length = int(handler.headers.get("Content-Length", "0"))
+    except ValueError:
+        return None, "invalid content-length"
+
+    raw_body = handler.rfile.read(content_length)
+    try:
+        payload = json.loads(raw_body.decode("utf-8") if raw_body else "{}")
+    except Exception:
+        return None, "invalid json"
+    return payload, None
+
+
+def _proxy_n8n_json(method, path, body=None, query=None, timeout=20):
+    url = f"{N8N_INTERNAL_BASE_URL.rstrip('/')}{path}"
+    if query:
+        url = f"{url}?{urlencode(query, doseq=True)}"
+
+    data = None
+    headers = {"Accept": "application/json"}
+    if body is not None:
+        data = json.dumps(body, ensure_ascii=True).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    req = Request(url=url, data=data, method=method, headers=headers)
+    try:
+        with urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+            try:
+                parsed = json.loads(raw) if raw else {}
+            except Exception:
+                parsed = {"raw": raw}
+            return resp.status, parsed
+    except HTTPError as e:
+        raw = e.read().decode("utf-8")
+        try:
+            parsed = json.loads(raw) if raw else {}
+        except Exception:
+            parsed = {"error": raw or str(e)}
+        return e.code, parsed
+    except URLError as e:
+        return 502, {"error": f"n8n upstream unreachable: {e.reason}"}
+    except Exception as e:
+        return 500, {"error": f"proxy failure: {str(e)}"}
 
 
 def build_bundle_bytes():
@@ -81,68 +134,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_HEAD(self):
-        if self.path == "/healthz":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", "11")
-            self.end_headers()
-            return
-
-        if self.path == "/bundles/policy.tar.gz":
-            body = build_bundle_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/gzip")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            return
-
-        self.send_response(404)
+    def _send_bytes(self, status, body, content_type):
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
+        self.wfile.write(body)
 
-    def do_GET(self):
-        if self.path == "/healthz":
-            self._send_json(200, {"ok": True})
-            return
-
-        if self.path == "/bundles/policy.tar.gz":
-            body = build_bundle_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/gzip")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
-
-        if self.path == "/registry/current":
-            payload = _read_json(RUNTIME_REGISTRY_PATH, {"workflows": []})
-            if "workflows" not in payload:
-                payload["workflows"] = []
-            self._send_json(200, payload)
-            return
-
-        self.send_response(404)
-        self.end_headers()
-
-    def do_POST(self):
-        if self.path != "/registry/publish":
-            self.send_response(404)
-            self.end_headers()
-            return
-
-        try:
-            content_length = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            self._send_json(400, {"ok": False, "error": "invalid content-length"})
-            return
-
-        raw_body = self.rfile.read(content_length)
-        try:
-            payload = json.loads(raw_body.decode("utf-8") if raw_body else "{}")
-        except Exception:
-            self._send_json(400, {"ok": False, "error": "invalid json"})
+    def _handle_runtime_publish(self):
+        payload, err = _read_body_json(self)
+        if err:
+            self._send_json(400, {"ok": False, "error": err})
             return
 
         workflows = payload.get("workflows")
@@ -166,6 +168,144 @@ class Handler(BaseHTTPRequestHandler):
         os.replace(tmp_path, RUNTIME_REGISTRY_PATH)
 
         self._send_json(200, {"ok": True, "revision_id": runtime_payload["revision_id"], "count": len(workflows)})
+
+    def _serve_ui_asset(self, path):
+        if path == "/policy-ui" or path == "/policy-ui/":
+            path = "/policy-ui/index.html"
+
+        rel = path.removeprefix("/policy-ui/")
+        safe_path = os.path.normpath(rel)
+        if safe_path.startswith(".."):
+            self._send_json(400, {"ok": False, "error": "invalid ui path"})
+            return
+
+        target = os.path.join(UI_ROOT, safe_path)
+        if not os.path.isfile(target):
+            self._send_json(404, {"ok": False, "error": "ui file not found"})
+            return
+
+        with open(target, "rb") as f:
+            body = f.read()
+        mime = mimetypes.guess_type(target)[0] or "application/octet-stream"
+        self._send_bytes(200, body, mime)
+
+    def _handle_ui_api_get(self, path, query):
+        if path == "/policy-ui/api/list":
+            status, payload = _proxy_n8n_json("GET", "/webhook/policy/registry/list")
+            self._send_json(status, payload)
+            return
+
+        if path == "/policy-ui/api/get":
+            workflow_id = query.get("workflow_id", [""])[0]
+            task_type = query.get("task_type", [""])[0]
+            status, payload = _proxy_n8n_json(
+                "GET",
+                "/webhook/policy/registry/get",
+                query={"workflow_id": workflow_id, "task_type": task_type},
+            )
+            self._send_json(status, payload)
+            return
+
+        if path == "/policy-ui/api/current":
+            payload = _read_json(RUNTIME_REGISTRY_PATH, {"workflows": []})
+            payload.setdefault("workflows", [])
+            self._send_json(200, payload)
+            return
+
+        self._send_json(404, {"ok": False, "error": "unknown api path"})
+
+    def _handle_ui_api_post(self, path):
+        payload, err = _read_body_json(self)
+        if err:
+            self._send_json(400, {"ok": False, "error": err})
+            return
+
+        if path == "/policy-ui/api/upsert":
+            status, response = _proxy_n8n_json("POST", "/webhook/policy/registry/upsert", body=payload)
+            self._send_json(status, response)
+            return
+
+        if path == "/policy-ui/api/publish":
+            status, response = _proxy_n8n_json("POST", "/webhook/policy/registry/publish", body=payload)
+            self._send_json(status, response)
+            return
+
+        self._send_json(404, {"ok": False, "error": "unknown api path"})
+
+    def do_HEAD(self):
+        if self.path == "/healthz":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", "11")
+            self.end_headers()
+            return
+
+        if self.path == "/bundles/policy.tar.gz":
+            body = build_bundle_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/gzip")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return
+
+        parsed = urlparse(self.path)
+        if parsed.path == "/policy-ui" or parsed.path.startswith("/policy-ui/"):
+            self.send_response(200)
+            self.end_headers()
+            return
+
+        self.send_response(404)
+        self.end_headers()
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+
+        if parsed.path == "/healthz":
+            self._send_json(200, {"ok": True})
+            return
+
+        if parsed.path == "/bundles/policy.tar.gz":
+            body = build_bundle_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/gzip")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed.path == "/registry/current":
+            payload = _read_json(RUNTIME_REGISTRY_PATH, {"workflows": []})
+            if "workflows" not in payload:
+                payload["workflows"] = []
+            self._send_json(200, payload)
+            return
+
+        if parsed.path.startswith("/policy-ui/api/"):
+            self._handle_ui_api_get(parsed.path, parse_qs(parsed.query, keep_blank_values=True))
+            return
+
+        if parsed.path == "/policy-ui" or parsed.path.startswith("/policy-ui/"):
+            self._serve_ui_asset(parsed.path)
+            return
+
+        self.send_response(404)
+        self.end_headers()
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+
+        if parsed.path == "/registry/publish":
+            self._handle_runtime_publish()
+            return
+
+        if parsed.path.startswith("/policy-ui/api/"):
+            self._handle_ui_api_post(parsed.path)
+            return
+
+        self.send_response(404)
+        self.end_headers()
 
     def log_message(self, format, *args):
         return

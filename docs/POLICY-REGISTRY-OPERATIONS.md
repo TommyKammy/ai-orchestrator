@@ -67,3 +67,13 @@ Query policy decision endpoint and confirm expected decision.
 - Publish is idempotent for same `revision_id`.
 - Use unique `revision_id` for traceability.
 - Keep `actor` and `notes` meaningful for audit trails.
+
+## Lightweight UI (Week3-Day1)
+- URL: `https://<host>/policy-ui/`
+- The UI calls server-side proxy APIs:
+  - `GET /policy-ui/api/list`
+  - `GET /policy-ui/api/get`
+  - `POST /policy-ui/api/upsert`
+  - `POST /policy-ui/api/publish`
+  - `GET /policy-ui/api/current`
+- Browser does not need direct webhook API key handling for these operations.

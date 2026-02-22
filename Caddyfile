@@ -45,6 +45,11 @@ n8n-s-app01.tmcast.net {
         body "Unauthorized: Invalid or missing API key"
     }
 
+    # Lightweight policy registry UI
+    handle /policy-ui* {
+        reverse_proxy policy-bundle-server:8088
+    }
+
     # Main reverse proxy with proper headers for n8n UI auth
     reverse_proxy n8n:5678 {
         header_up Host {host}

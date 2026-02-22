@@ -102,6 +102,7 @@ Week2 adds no-restart policy publish flow for OPA:
 - n8n workflow `07_policy_registry_publish` writes published rules to DB and calls `POST /registry/publish` on `policy-bundle-server`
 - `policy-bundle-server` persists runtime registry to `policy/runtime/policy_registry.json`
 - OPA keeps polling bundle (`min_delay_seconds: 10`) and picks up updates without OPA restart
+- Lightweight UI is available at `/policy-ui/` (served by `policy-bundle-server`)
 
 Related docs:
 - `docs/POLICY-REGISTRY-OPERATIONS.md`
